@@ -1,0 +1,14 @@
+// A module: its top-level names are what importers see.
+enum Shape { Circle(r), Rect(w, h), Square(s) }
+
+fn area(s) {
+    return match s {
+        Circle(r) => PI * r * r,
+        Rect(w, h) => w * h,
+        Square(x) => square(x),
+    }
+}
+
+// A helper. `import geometry` makes it `geometry.square`; `from geometry
+// import area, Shape` takes only the names it lists.
+fn square(x) { return x * x }

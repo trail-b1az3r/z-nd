@@ -1,0 +1,9 @@
+import "glow.zsg"
+
+fn Main() {
+    global let canvas = Canvas(360, 120)
+    for i in 0..3 {
+        canvas.shade(glow, i * 120, 0, 120, 120, { hue: i / 2.0 })
+    }
+    Printl(squares.run({ xs: [1, 2, 3, 4] }).xs)
+}

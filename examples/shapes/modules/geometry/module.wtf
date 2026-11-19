@@ -1,0 +1,5 @@
+[module]
+name = "geometry"
+version = "1.0.0"
+description = "Shapes and their areas"
+entry = "geometry.zxx"

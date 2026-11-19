@@ -1,0 +1,11 @@
+[package]
+name = "zsharpend-nd"
+description = "nd: NumPy-style n-dimensional arrays for Zsharpend, as a script extender."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zsharpend = { path = "../zsharpend" }

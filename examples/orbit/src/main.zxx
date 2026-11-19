@@ -1,0 +1,19 @@
+// A ring of planets around a sun: nd computes the orbit, gfx3d draws it.
+import nd
+import gfx3d
+
+fn Main() {
+    global let canvas = Canvas(520, 260)
+    canvas.clear(#0d1117)
+    let n = 7
+    let angles = nd.linspace(0, 2 * nd.pi, n + 1)[:-1]
+    let xs = nd.cos(angles) * 2.6
+    let zs = nd.sin(angles) * 2.6
+    var scene = [gfx3d.sphere(0.7, 18, 32).color(#e8b45c)]
+    for i in 0..n {
+        let hue = 190 + i * 22
+        scene.push(gfx3d.sphere(0.22 + 0.04 * (i % 3), 12, 20).color(hsl(hue, 0.6, 0.6)).translate(xs[i], 0, zs[i]))
+    }
+    let cam = gfx3d.camera([0, 2.8, 6], target=[0, -0.2, 0], fov=50)
+    "drew %d triangles\n", gfx3d.render(canvas, scene, cam, light=[0.2, -1, -0.6], ambient=0.3);
+}

@@ -1,0 +1,16 @@
+[package]
+name = "zsharpend"
+description = "Zsharpend: the next Z#++ — .zxx programs (and Z#++ files), modules, script extenders, nd arrays and 3D, sandboxed and embeddable (StonedGem)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "zspp"
+path = "src/bin/zspp.rs"
+
+[dependencies]
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
+naga = { version = "27", features = ["wgsl-in"] }

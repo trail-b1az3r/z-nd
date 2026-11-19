@@ -1,0 +1,11 @@
+[package]
+name = "zsharpend-3d"
+description = "gfx3d: meshes, a camera and a z-buffered software renderer onto Zsharpend's canvas, as a script extender."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zsharpend = { path = "../zsharpend" }

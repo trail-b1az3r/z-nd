@@ -1,0 +1,14 @@
+# Whetstone Translation File: how to compile this project.
+[project]
+name = "orbit"
+version = "0.2.0"
+entry = "src/main.zxx"
+host = "standalone"
+description = "A ring of planets, drawn with gfx3d"
+
+[build]
+out = "build"
+strict = true                 # warnings fail the build
+
+[extenders]
+use = ["nd", "gfx3d"]

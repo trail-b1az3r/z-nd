@@ -1,0 +1,10 @@
+// A fragment shader and a kernel (Z#++ GPU code).
+fragment glow(uv: vec2, uniform hue: float) -> color {
+    let d = length(uv - vec2(0.5, 0.5))
+    let c = vec3(0.2 + 0.6 * hue, 0.45, 1.0 - 0.6 * hue) * smoothstep(0.5, 0.0, d)
+    return vec4(c, 1.0)
+}
+
+kernel squares(buf xs: [float]) {
+    xs[gid] = xs[gid] * xs[gid]
+}
