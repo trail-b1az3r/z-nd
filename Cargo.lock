@@ -405,3 +405,17 @@ dependencies = [
  "naga",
  "tiny-skia",
 ]
+
+[[package]]
+name = "zsharpend-3d"
+version = "0.1.0"
+dependencies = [
+ "zsharpend",
+]
+
+[[package]]
+name = "zsharpend-nd"
+version = "0.1.0"
+dependencies = [
+ "zsharpend",
+]
