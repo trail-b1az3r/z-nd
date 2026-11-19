@@ -168,6 +168,22 @@ impl Interp {
     /// Register items (functions, structs, impls, handlers, GPU items) and run
     /// top-level statements in order. Returns the error as text.
     pub fn load(&mut self, items: &[Item]) -> Result<(), String> {
+        let g = self.globals.clone();
+        self.load_into(items, &g)
+    }
+
+    /// Load a `.zxx` module's items into a namespace of its own and make it
+    /// importable as `name`. Its functions see each other (and the
+    /// program's globals); importers see what it defines at top level.
+    pub fn load_module(&mut self, name: &str, items: &[Item]) -> Result<(), String> {
+        let env = new_scope(Some(self.globals.clone()));
+        self.load_into(items, &env)?;
+        let exports: BTreeMap<String, Value> = env.borrow().vars.iter().filter(|(k, _)| !k.starts_with('_')).map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.modules.insert(name.to_string(), Value::map(exports));
+        Ok(())
+    }
+
+    fn load_into(&mut self, items: &[Item], env: &Env) -> Result<(), String> {
         self.reset_budget();
         // Types first (structs, enums, traits), so `impl` and functions can
         // refer to ones declared further down.
@@ -176,8 +192,8 @@ impl Interp {
         for it in ordered {
             match it {
                 Item::Func(f) if f.body.is_some() => {
-                    let c = Value::Func(Rc::new(Closure { def: f.clone(), env: self.globals.clone() }));
-                    self.set_global(&f.name, c);
+                    let c = Value::Func(Rc::new(Closure { def: f.clone(), env: env.clone() }));
+                    env.borrow_mut().vars.insert(f.name.clone(), c);
                 }
                 Item::Struct { name, fields, .. } => {
                     self.structs.insert(name.clone(), fields.clone());
@@ -230,7 +246,9 @@ impl Interp {
                         return Err(format!("line {line}: there's no module `{name}` (built in, in the project, or installed)"));
                     };
                     match names {
-                        None => self.set_global(alias.as_deref().unwrap_or(name), m),
+                        None => {
+                            env.borrow_mut().vars.insert(alias.as_deref().unwrap_or(name).to_string(), m);
+                        }
                         Some(list) => {
                             for (n, a) in list {
                                 let v = match &m {
@@ -239,7 +257,7 @@ impl Interp {
                                     _ => None,
                                 };
                                 let v = v.ok_or(format!("line {line}: module `{name}` has no `{n}`"))?;
-                                self.set_global(a.as_deref().unwrap_or(n), v);
+                                env.borrow_mut().vars.insert(a.as_deref().unwrap_or(n).to_string(), v);
                             }
                         }
                     }
@@ -254,10 +272,9 @@ impl Interp {
                 _ => {}
             }
         }
-        let g = self.globals.clone();
         for it in items {
             if let Item::Stmt(s) = it {
-                self.exec(s, &g).map_err(|c| self.describe(c))?;
+                self.exec(s, env).map_err(|c| self.describe(c))?;
             }
         }
         Ok(())

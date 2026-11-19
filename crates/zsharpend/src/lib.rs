@@ -10,6 +10,7 @@
 
 pub mod ast;
 pub mod canvas;
+pub mod extend;
 pub mod interp;
 pub mod lexer;
 pub mod parser;

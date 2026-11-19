@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use crate::ast::*;
+use crate::extend::Extender;
 use crate::interp::Interp;
 
 pub struct Program {
@@ -45,17 +46,39 @@ struct Collected {
     gpu: Vec<Rc<crate::zsg::Module>>,
     seen: HashSet<String>,
     files: Vec<String>,
+    /// `.zxx` modules by name, dependencies first.
+    modules: Vec<(String, Vec<Item>)>,
+    module_names: HashSet<String>,
 }
 
-fn collect(path: &str, read: &dyn Fn(&str) -> Option<String>, c: &mut Collected, depth: usize) -> Result<(), String> {
+/// Where `import name` looks for a `.zxx` module, in order: next to the
+/// importing file, in the project's `modules/` folder, then among installed
+/// modules (`@installed/…`, which the host maps to its module folder).
+pub fn module_candidates(from: &str, name: &str) -> Vec<String> {
+    let mut v = vec![];
+    if let Ok(p) = resolve(from, &format!("{name}.zxx")) {
+        v.push(p);
+    }
+    v.push(format!("modules/{name}/mod.zxx"));
+    v.push(format!("@installed/{name}/mod.zxx"));
+    v
+}
+
+struct Ctx<'a> {
+    read: &'a dyn Fn(&str) -> Option<String>,
+    extenders: &'a [&'a dyn Extender],
+    builtin_modules: HashSet<String>,
+}
+
+fn collect(path: &str, cx: &Ctx, c: &mut Collected, out: &mut Vec<Item>, depth: usize) -> Result<(), String> {
     if depth > 32 {
         return Err("imports nest too deeply".into());
     }
     if !c.seen.insert(path.to_string()) {
         return Ok(());
     }
-    let kind = Kind::from_path(path).ok_or(format!("{path}: Z#++ files end in .zsp, .zsx or .zsg"))?;
-    let src = read(path).ok_or(format!("{path}: not found"))?;
+    let kind = Kind::from_path(path).ok_or(format!("{path}: Zsharpend files end in .zxx (or Z#++'s .zsp, .zsx, .zsg)"))?;
+    let src = (cx.read)(path).ok_or(format!("{path}: not found"))?;
     c.files.push(path.to_string());
     match kind {
         Kind::Gpu => {
@@ -63,20 +86,47 @@ fn collect(path: &str, read: &dyn Fn(&str) -> Option<String>, c: &mut Collected,
             c.gpu.push(Rc::new(m));
         }
         Kind::Header | Kind::Program | Kind::Zxx => {
-            let items = crate::parser::parse(&src, kind).map_err(|e| format!("{path}: {e}"))?;
+            let mut items = crate::parser::parse(&src, kind).map_err(|e| format!("{path}: {e}"))?;
+            if kind.is_program() {
+                for e in cx.extenders {
+                    e.transform(path, &mut items).map_err(|m| format!("{path}: {} (extender `{}`)", m, e.name()))?;
+                }
+            }
             for it in items {
                 match it {
                     Item::Import { path: p, line } => {
                         let full = resolve(path, &p).map_err(|e| format!("{path}, line {line}: {e}"))?;
-                        collect(&full, read, c, depth + 1)?;
+                        collect(&full, cx, c, out, depth + 1)?;
+                    }
+                    Item::ImportModule { ref name, line, .. } => {
+                        if !cx.builtin_modules.contains(name) && !c.module_names.contains(name) {
+                            let file = module_candidates(path, name).into_iter().find(|p| (cx.read)(p).is_some()).ok_or(format!(
+                                "{path}, line {line}: there's no module `{name}` (not built in, not in modules/{name}/, not installed)"
+                            ))?;
+                            c.module_names.insert(name.clone());
+                            let mut m = vec![];
+                            collect(&file, cx, c, &mut m, depth + 1)?;
+                            c.modules.push((name.clone(), m));
+                        }
+                        out.push(it);
                     }
                     Item::Func(f) if f.body.is_none() => c.sigs.push((path.to_string(), f)),
-                    other => c.items.push(other),
+                    other => out.push(other),
                 }
             }
         }
     }
     Ok(())
+}
+
+/// How to load a program beyond its entry file.
+#[derive(Default)]
+pub struct Options<'a> {
+    /// Script extenders to install (and to run over each file).
+    pub extenders: &'a [&'a dyn Extender],
+    /// Extensions: `.zxx` files merged into the program before the entry
+    /// (their functions and `on` handlers become the program's).
+    pub extensions: Vec<String>,
 }
 
 fn ty_str(t: &Option<Type>) -> Option<String> {
@@ -87,13 +137,25 @@ impl Program {
     /// Load `entry` (a .zsp) and everything it imports. `setup` registers
     /// host functions/objects before the program runs.
     pub fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, setup: impl FnOnce(&mut Interp)) -> Result<Program, String> {
+        Program::load_with(entry, read, setup, Options::default())
+    }
+
+    /// [`Program::load`] with script extenders and extensions.
+    pub fn load_with(entry: &str, read: &dyn Fn(&str) -> Option<String>, setup: impl FnOnce(&mut Interp), opts: Options) -> Result<Program, String> {
         if !Kind::from_path(entry).is_some_and(Kind::is_program) {
             return Err(format!("{entry}: a program is a .zxx or .zsp file"));
         }
-        let mut c = Collected::default();
-        collect(entry, read, &mut c, 0)?;
         let mut it = Interp::new();
+        crate::extend::install(&mut it, opts.extenders);
         setup(&mut it);
+        let cx = Ctx { read, extenders: opts.extenders, builtin_modules: it.modules.keys().cloned().collect() };
+        let mut c = Collected::default();
+        let mut items = vec![];
+        for ext in &opts.extensions {
+            collect(ext, &cx, &mut c, &mut items, 0)?;
+        }
+        collect(entry, &cx, &mut c, &mut items, 0)?;
+        c.items = items;
         for m in &c.gpu {
             it.add_gpu_module(m.clone());
         }
@@ -129,6 +191,9 @@ impl Program {
                     }
                 }
             }
+        }
+        for (name, items) in &c.modules {
+            it.load_module(name, items)?;
         }
         it.load(&c.items)?;
         Ok(Program { interp: it, files: c.files })
