@@ -1,0 +1,20 @@
+[package]
+name = "whetstone"
+description = "Whetstone: the Zsharpend compiler — reads a .wtf (Whetstone Translation File), checks and bundles .zxx programs, runs them, installs modules."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "whetstone"
+path = "src/main.rs"
+
+[dependencies]
+zsharpend = { path = "../zsharpend" }
+zsharpend-nd = { path = "../zsharpend-nd" }
+zsharpend-3d = { path = "../zsharpend-3d" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.9"
