@@ -1,0 +1,3 @@
+# Docs design
+
+The site follows the Python documentation's conventions because readers of language docs know them: a related bar (breadcrumbs left; index, modules, next, previous right), a left sidebar with quick search, the page's table of contents and the neighbouring topics, function signatures as highlighted definition lists with ¶ permalinks, note/warning boxes, a module index, a general index and client-side search. The colours are Zsharpend's own: white and warm-grey panels, one link blue (#0b5fa5 / #7fb6ec dark), code on pale green with a green rule; light and dark themes, a phone layout with a menu button. Every example is run when the site is built, and shows its real output.

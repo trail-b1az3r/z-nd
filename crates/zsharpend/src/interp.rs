@@ -237,6 +237,10 @@ impl Interp {
                         self.set_global(v, val);
                     }
                     self.enums.insert(name.clone(), variants.clone());
+                    // The enum's name is a namespace of its variants (so a
+                    // module can export it, and `Shape.Circle(1)` works too).
+                    let ns: BTreeMap<String, Value> = variants.iter().filter_map(|(v, _)| self.global(v).map(|x| (v.clone(), x))).collect();
+                    env.borrow_mut().vars.insert(name.clone(), Value::map(ns));
                 }
                 Item::Trait { name, methods, .. } => {
                     self.traits.insert(name.clone(), methods.clone());
@@ -1283,6 +1287,11 @@ impl Interp {
             }
             (Value::Str(s), _) => {
                 let Some(k) = i.as_i64() else { return throw("a string index must be a number") };
+                // Negative counts from the end, as for lists.
+                let k = if k < 0 { k + s.chars().count() as i64 } else { k };
+                if k < 0 {
+                    return throw(format!("index {k} is outside the string"));
+                }
                 match s.chars().nth(k as usize) {
                     Some(c) => Value::str(&c.to_string()),
                     None => return throw(format!("index {k} is outside the string")),

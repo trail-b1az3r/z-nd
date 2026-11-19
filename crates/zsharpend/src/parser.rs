@@ -1163,9 +1163,12 @@ impl Parser {
                     if self.eat_op("}") {
                         return Ok(Expr::Map(kv));
                     }
+                    let mut bare: Option<(String, usize)> = None;
                     let k = match self.peek().clone() {
                         Tok::Ident(s) if self.peek_at(1) == &Tok::Op(":") => {
+                            let l = self.line();
                             self.next();
+                            bare = Some((s.clone(), l));
                             Expr::Str(vec![StrSeg::Lit(s)])
                         }
                         _ => self.expr(false)?,
@@ -1177,6 +1180,11 @@ impl Parser {
                     if self.zxx() && kv.is_empty() && self.eat_kw("for") {
                         let (vars, iter, cond) = self.comp_tail()?;
                         self.expect_op("}")?;
+                        // In a comprehension the key is an expression (`{w: len(w) for w in …}`).
+                        let k = match bare {
+                            Some((name, l)) => Expr::Var(name, l),
+                            None => k,
+                        };
                         return Ok(Expr::Comp { elem: Box::new(k), value: Some(Box::new(v)), vars, iter: Box::new(iter), cond: cond.map(Box::new) });
                     }
                     kv.push((k, v));

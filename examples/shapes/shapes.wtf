@@ -1,0 +1,5 @@
+# Whetstone Translation File for the shapes example.
+[project]
+name = "shapes"
+version = "0.1.0"
+entry = "src/main.zxx"

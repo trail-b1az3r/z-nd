@@ -1,0 +1,9 @@
+// Uses the geometry module in modules/geometry/.
+from geometry import area, Shape
+
+fn Main() {
+    let shapes = [Shape::Circle(1.5), Shape::Rect(2, 4), Shape::Square(3)]
+    for s in shapes {
+        "%-24s area %6.2f\n", str(s), area(s);
+    }
+}

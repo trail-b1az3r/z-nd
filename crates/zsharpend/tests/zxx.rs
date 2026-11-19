@@ -180,3 +180,15 @@ fn holyc_include() {
     p.run_main().unwrap();
     assert_eq!(p.output(), "8\n");
 }
+
+#[test]
+fn map_comprehension_keys_are_expressions() {
+    assert_eq!(run("fn Main() { Printl({ w: len(w) for w in [\"ab\", \"abc\"] }) }\n"), "{ab: 2, abc: 3}\n");
+    // A literal map still takes a bare name as a key.
+    assert_eq!(run("fn Main() { let w = 1\n Printl({ w: 2 }) }\n"), "{w: 2}\n");
+}
+
+#[test]
+fn negative_string_indices_and_unit_variants() {
+    assert_eq!(run("enum E { A, B(x) }\nfn Main() { Printl(\"abc\"[-1], A, B(1)) }\n"), "c A B { x: 1 }\n");
+}

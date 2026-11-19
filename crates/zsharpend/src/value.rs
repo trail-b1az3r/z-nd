@@ -270,6 +270,9 @@ impl fmt::Display for Value {
             }
             Value::Struct(s) => {
                 let s = s.borrow();
+                if s.fields.is_empty() {
+                    return write!(f, "{}", s.name); // a unit variant: `Empty`
+                }
                 write!(f, "{} {{ ", s.name)?;
                 for (i, (k, v)) in s.fields.iter().enumerate() {
                     if i > 0 {

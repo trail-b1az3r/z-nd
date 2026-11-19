@@ -1,0 +1,19 @@
+[package]
+name = "zsharpend-docs"
+description = "Builds the Zsharpend documentation site from docs/site/, running every example."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "zsharpend-docs"
+path = "src/main.rs"
+
+[dependencies]
+zsharpend = { path = "../zsharpend" }
+whetstone = { path = "../whetstone" }
+pulldown-cmark = { version = "0.13.6", default-features = false, features = ["html"] }
+serde_json = { workspace = true }
