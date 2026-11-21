@@ -224,3 +224,9 @@ fn zsharp_graphics_init() {
     assert_eq!(p.interp.graphics, Some(("Pong".into(), 200, 100)));
     p.interp.call_global("Update", vec![Value::Float(0.016)]).unwrap();
 }
+
+#[test]
+fn string_escapes_for_terminal_codes() {
+    // \e, \xHH and \u{…} (for terminal escape sequences)
+    assert_eq!(run("func Main() {\n Printl(len(\"\\e[1m\"), len(\"\\x1b\"), \"\\x41\\u{42}\", len(\"\\u{1F600}\"))\n}"), "4 1 AB 1\n");
+}

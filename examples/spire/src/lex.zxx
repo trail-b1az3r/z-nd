@@ -1,0 +1,95 @@
+// lex.zxx - splits a command line into words and operators.
+//
+// Words keep their quotes and $(...) as written; expansion happens when a
+// command runs. Tokens are maps: {t: "w", v: raw} or {t: "op", v: "|"}.
+
+const OPS = ["2>&1", "2>>", "&>>", "<<<", ">&2", "&&", "||", "|&", ">>", "2>", "&>", ";", "|", "&", ">", "<", "\n"]
+
+fn is_blank(c) {
+    return c == " " or c == "\t" or c == "\r"
+}
+
+fn op_at(cs, i) {
+    for op in OPS {
+        let n = len(op)
+        if i + n <= len(cs) and join(cs[i:i + n], "") == op {
+            // "2>" only counts as a redirection at the start of a word
+            if op.starts_with("2") and i > 0 and not is_blank(cs[i - 1]) and cs[i - 1] != "\n" {
+                continue
+            }
+            return op
+        }
+    }
+    return null
+}
+
+// -> {toks: [...], open: true when a quote or bracket is still open}
+fn lex(src) {
+    let cs = src.chars()
+    let n = len(cs)
+    var toks = []
+    var i = 0
+    while i < n {
+        let c = cs[i]
+        if is_blank(c) {
+            i += 1
+            continue
+        }
+        if c == "\\" and i + 1 < n and cs[i + 1] == "\n" {
+            i += 2
+            continue
+        }
+        if c == "#" {
+            while i < n and cs[i] != "\n" {
+                i += 1
+            }
+            continue
+        }
+        let op = op_at(cs, i)
+        if op != null {
+            toks.push({t: "op", v: op})
+            i += len(op)
+            continue
+        }
+        if c == ")" {
+            toks.push({t: "op", v: ")"})
+            i += 1
+            continue
+        }
+        // a word
+        var w = ""
+        var sq = false
+        var dq = false
+        var depth = 0
+        while i < n {
+            let d = cs[i]
+            if not sq and not dq and depth == 0 {
+                if is_blank(d) or d == "\n" or d == ";" or d == "|" or d == "&" or d == "<" or d == ">" or d == ")" {
+                    break
+                }
+            }
+            if d == "\\" and not sq and i + 1 < n {
+                w = w + d + cs[i + 1]
+                i += 2
+                continue
+            }
+            if d == "'" and not dq {
+                sq = not sq
+            } elif d == "\"" and not sq {
+                dq = not dq
+            } elif not sq and (d == "(" or (d == "{" and len(w) > 0 and w[-1] == "$")) {
+                depth += 1
+            } elif not sq and (d == ")" or d == "}") and depth > 0 {
+                depth -= 1
+            }
+            w = w + d
+            i += 1
+        }
+        toks.push({t: "w", v: w})
+        if sq or dq or depth > 0 {
+            return {toks: toks, open: true}
+        }
+    }
+    let open = n > 0 and cs[n - 1] == "\\"
+    return {toks: toks, open: open}
+}

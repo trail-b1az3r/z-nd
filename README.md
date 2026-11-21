@@ -24,8 +24,18 @@ whetstone new hello && cd hello && whetstone run
 | [`zsharpend`](crates/zsharpend) | The language: lexer, parser, interpreter, standard library, canvas, `.zsg` GPU code, modules, the `Extender` trait. Same host API as Z#++. |
 | [`zsharpend-nd`](crates/zsharpend-nd) | The `nd` script extender. |
 | [`zsharpend-3d`](crates/zsharpend-3d) | The `gfx3d` script extender. |
+| [`zsharpend-os`](crates/zsharpend-os) | The `os` script extender: terminal, processes, files and environment, for programs that leave the sandbox. |
 | [`whetstone`](crates/whetstone) | The compiler and the `whetstone` command. |
 | [`zsharpend-docs`](crates/zsharpend-docs) | Builds the documentation site from [`docs/site/`](docs/site), running every example. |
+
+## spire, a shell written in Zsharpend
+
+[`examples/spire`](examples/spire) is an interactive shell in `.zxx`, using the `os` extender: fish and bash syntax, fish's colors, syntax highlighting, autosuggestions, Tab completion, history, and your `~/.config/fish` config.
+
+```sh
+cargo build --release -p whetstone
+examples/spire/spire              # or: whetstone run examples/spire -- -c 'echo hi'
+```
 
 ## Documentation
 

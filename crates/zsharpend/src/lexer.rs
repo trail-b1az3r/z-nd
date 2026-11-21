@@ -212,11 +212,39 @@ pub fn lex_at(src: &str, first_line: usize) -> Result<Vec<Token>, String> {
                 }
                 if x == '\\' {
                     let e = *c.get(i + 1).ok_or(format!("line {line}: string never closed"))?;
+                    // `\xHH` and `\u{H…}`: a character by its code
+                    if e == 'x' || e == 'u' {
+                        let (digits, skip) = if e == 'x' {
+                            let d: String = c[i + 2..].iter().take(2).take_while(|d| d.is_ascii_hexdigit()).collect();
+                            let n = d.len();
+                            (d, 2 + n)
+                        } else if c.get(i + 2) == Some(&'{') {
+                            let d: String = c[i + 3..].iter().take_while(|d| d.is_ascii_hexdigit()).collect();
+                            let n = d.len();
+                            if c.get(i + 3 + n) != Some(&'}') {
+                                return Err(format!("line {line}: \\u{{…}} never closed"));
+                            }
+                            (d, 4 + n)
+                        } else {
+                            (String::new(), 2)
+                        };
+                        let ch = u32::from_str_radix(&digits, 16).ok().and_then(char::from_u32);
+                        match ch {
+                            Some(ch) if !digits.is_empty() => lit.push(ch),
+                            _ => return Err(format!("line {line}: bad \\{e} escape (use \\x1b or \\u{{1F600}})")),
+                        }
+                        i += skip;
+                        col += skip;
+                        continue;
+                    }
                     lit.push(match e {
                         'n' => '\n',
                         't' => '\t',
                         'r' => '\r',
                         '0' => '\0',
+                        'e' => '\x1b',
+                        'a' => '\x07',
+                        'b' => '\x08',
                         '$' => '$',
                         other => other,
                     });

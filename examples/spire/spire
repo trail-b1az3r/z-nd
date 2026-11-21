@@ -1,0 +1,12 @@
+#!/bin/sh
+# Launches spire (the Zsharpend edition) through Whetstone.
+# Usage: examples/spire/spire [-c 'cmd' | script] [args...]
+here="$(cd "$(dirname "$0")" && pwd)"
+ws="$(command -v whetstone 2>/dev/null)"
+if [ -z "$ws" ]; then
+    for c in "$here/../../target/release/whetstone" "$here/../../target/debug/whetstone"; do
+        [ -x "$c" ] && ws="$c" && break
+    done
+fi
+[ -n "$ws" ] || { echo "spire: build Whetstone first: cargo install --path crates/whetstone" >&2; exit 127; }
+exec "$ws" run "$here" -- "$@"

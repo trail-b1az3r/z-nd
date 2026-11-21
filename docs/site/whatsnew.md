@@ -42,3 +42,10 @@ Zsharpend programs are `.zxx` files. The new syntax and its keywords (`fn`, `enu
 ## Whetstone and .wtf
 
 Whetstone compiles a project described by its [.wtf file](wtf.md): it parses every file the program reaches, checks the whole program (undefined names, wrong argument counts, unknown enum variants, printf formats and more), writes a self-contained bundle, and runs it. See [Whetstone](whetstone.md).
+
+## Leaving the sandbox
+
+- The [os](library-os.md) script extender gives programs the terminal (raw keys, direct output, size), processes (pipelines, redirections, job control), files and the environment. Programs that use it have no time or step budget.
+- `examples/spire` is an interactive shell written in Zsharpend with it: fish and bash syntax, syntax highlighting, autosuggestions, completion, and your fish config.
+- Strings understand `\e`, `\xHH` and `\u{…}`, for terminal escape sequences.
+- Whetstone runs programs with a larger stack, so deep recursion doesn't overflow.

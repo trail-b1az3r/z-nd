@@ -33,7 +33,7 @@ pub use check::{Diagnostic, Severity};
 
 /// Script extenders built into this Whetstone.
 pub fn extenders() -> Vec<Box<dyn Extender>> {
-    vec![Box::new(zsharpend_nd::Nd), Box::new(zsharpend_3d::Gfx3d)]
+    vec![Box::new(zsharpend_nd::Nd), Box::new(zsharpend_3d::Gfx3d), Box::new(zsharpend_os::Os::from_process_args())]
 }
 
 fn find_extenders(names: &[String]) -> Result<Vec<Box<dyn Extender>>, String> {
