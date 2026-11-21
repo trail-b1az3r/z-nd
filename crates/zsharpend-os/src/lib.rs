@@ -1,8 +1,8 @@
 //! **os** — the operating system, for Zsharpend programs that run outside
 //! the sandbox: the terminal (raw keys, size, direct output), processes
 //! (pipelines with redirections, process groups and job control), files,
-//! directories and the environment. It's what lets a shell be written in
-//! Zsharpend (see `examples/spire`).
+//! directories and the environment — enough to write real command-line
+//! programs, even a shell, in Zsharpend.
 //!
 //! ```text
 //! import os
@@ -36,7 +36,7 @@ pub struct Os {
 
 impl Os {
     /// Program arguments taken from this process's command line, after `--`
-    /// (`whetstone run examples/spire -- -c "echo hi"`).
+    /// (`whetstone run myproject -- one two`).
     pub fn from_process_args() -> Os {
         let all: Vec<String> = std::env::args().collect();
         let args = match all.iter().position(|a| a == "--") {
