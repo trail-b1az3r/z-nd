@@ -177,6 +177,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
+name = "libc"
+version = "0.2.191"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -509,6 +515,7 @@ dependencies = [
  "zsharpend",
  "zsharpend-3d",
  "zsharpend-nd",
+ "zsharpend-os",
 ]
 
 [[package]]
@@ -584,5 +591,13 @@ dependencies = [
 name = "zsharpend-nd"
 version = "0.1.0"
 dependencies = [
+ "zsharpend",
+]
+
+[[package]]
+name = "zsharpend-os"
+version = "0.1.0"
+dependencies = [
+ "libc",
  "zsharpend",
 ]

@@ -26,12 +26,19 @@ Installed modules live in $ZSHARPEND_HOME/modules (default ~/.zsharpend/modules)
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match run(&args) {
+    // The interpreter walks the syntax tree recursively; give programs
+    // (deeply recursive ones, or `os` programs with a raised call depth)
+    // a stack to match instead of the main thread's 8 MB.
+    let worker = std::thread::Builder::new().stack_size(1 << 30).spawn(move || match run(&args) {
         Ok(code) => code,
         Err(e) => {
             eprintln!("whetstone: {e}");
             ExitCode::from(1)
         }
+    });
+    match worker.map(|h| h.join()) {
+        Ok(Ok(code)) => code,
+        _ => ExitCode::from(101),
     }
 }
 

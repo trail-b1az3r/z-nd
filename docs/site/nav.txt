@@ -15,6 +15,7 @@ library.md
 library-builtins.md
 library-nd.md
 library-gfx3d.md
+library-os.md
 library-canvas.md
 # Whetstone
 whetstone.md

@@ -15,6 +15,7 @@ path = "src/main.rs"
 zsharpend = { path = "../zsharpend" }
 zsharpend-nd = { path = "../zsharpend-nd" }
 zsharpend-3d = { path = "../zsharpend-3d" }
+zsharpend-os = { path = "../zsharpend-os" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = "0.9"

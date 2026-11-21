@@ -1,0 +1,12 @@
+[package]
+name = "zsharpend-os"
+description = "os: terminal, process, file and environment access for Zsharpend programs that leave the sandbox, as a script extender."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zsharpend = { path = "../zsharpend" }
+libc = "0.2"
