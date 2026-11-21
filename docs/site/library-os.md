@@ -2,7 +2,7 @@
 
 ::: module os — terminal, processes, files and environment, for programs that leave the sandbox
 
-Zsharpend scripts run in a sandbox: no files, no processes, a time and step budget. A project that lists the `os` [script extender](extending.md#script-extenders) opts out of that and becomes a real program — it can drive the terminal, run commands, read and write files and change the environment. Its time and step limits are lifted, and calls may nest deeper (up to 256). [spire](https://github.com/trail-b1az3r/z-nd/tree/main/examples/spire), an interactive shell, is written this way.
+Zsharpend scripts run in a sandbox: no files, no processes, a time and step budget. A project that lists the `os` [script extender](extending.md#script-extenders) opts out of that and becomes a real program — it can drive the terminal, run commands, read and write files and change the environment. Its time and step limits are lifted, and calls may nest deeper (up to 256). That's enough to write real command-line tools — even an interactive shell.
 
 ```toml
 [extenders]

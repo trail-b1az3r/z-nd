@@ -28,15 +28,6 @@ whetstone new hello && cd hello && whetstone run
 | [`whetstone`](crates/whetstone) | The compiler and the `whetstone` command. |
 | [`zsharpend-docs`](crates/zsharpend-docs) | Builds the documentation site from [`docs/site/`](docs/site), running every example. |
 
-## spire, a shell written in Zsharpend
-
-[`examples/spire`](examples/spire) is an interactive shell in `.zxx`, using the `os` extender: fish and bash syntax, fish's colors, syntax highlighting, autosuggestions, Tab completion, history, and your `~/.config/fish` config.
-
-```sh
-cargo build --release -p whetstone
-examples/spire/spire              # or: whetstone run examples/spire -- -c 'echo hi'
-```
-
 ## Documentation
 
 `cargo run -p zsharpend-docs`, then open `target/zsharpend-docs/index.html`: a tutorial, the language reference, the library reference (with a module index, a general index and search), Whetstone and `.wtf`, extending, embedding, and Z#++ compatibility.
