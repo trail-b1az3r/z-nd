@@ -160,7 +160,7 @@ fn parse_command() {
         P.incomplete = true
         return null
     }
-    if t.t == "op" and t.v != ">" and t.v != ">>" and t.v != "<" and t.v != "2>" and t.v != "&>" {
+    if t.t == "op" and not is_redir_op(t.v) {
         return fail("unexpected '${t.v}'")
     }
     let w = t.v
@@ -181,6 +181,13 @@ fn parse_command() {
         }
         if w == "for" {
             return parse_for()
+        }
+        if w == "select" {
+            let f = parse_for()
+            if f != null {
+                f.k = "select"
+            }
+            return f
         }
         if w == "function" {
             return parse_function()
@@ -203,17 +210,41 @@ fn parse_command() {
         if w.ends_with("()") and len(w) > 2 {
             return parse_paren_function(w[:-2])
         }
+        if w == "[[" {
+            return parse_cond()
+        }
+        if w.starts_with("((") and w.ends_with("))") and len(w) >= 4 {
+            advance()
+            return with_redirs({k: "arith", expr: w[2:-2]})
+        }
+        if w.starts_with("(") and w.ends_with(")") {
+            // ( commands ): a subshell
+            advance()
+            let inner = parse_program_nested(w[1:-1])
+            if inner == null {
+                return null
+            }
+            return with_redirs({k: "subshell", body: inner})
+        }
     }
     return parse_simple()
 }
 
 fn is_redir_op(v) {
-    return v in [">", ">>", "<", "2>", "2>>", "&>", "&>>", "<<<", "2>&1", ">&2"]
+    return v in [">", ">>", "<", "2>", "2>>", "&>", "&>>", "<<<", "<<", "<<-", "2>&1", ">&2"]
 }
 
 fn parse_redir() {
-    let op = tok().v
+    let ot = tok()
+    let op = ot.v
     advance()
+    if op == "<<" or op == "<<-" {
+        if tok().t != "w" {
+            return fail("expected a delimiter after '${op}'")
+        }
+        advance()
+        return {op: "<<", target: "", body: ot.body ?? "", quoted: ot.quoted ?? false}
+    }
     if op == "2>&1" or op == ">&2" {
         return {op: op, target: ""}
     }
@@ -246,7 +277,14 @@ fn is_assignment(w) {
     if eq < 1 {
         return false
     }
-    let name = w[:eq]
+    var name = w[:eq]
+    if name.ends_with("+") {
+        name = name[:-1]
+    }
+    let br = name.index_of("[")
+    if br > 0 and name.ends_with("]") {
+        name = name[:br]
+    }
     for c in name.chars() {
         if not (c == "_" or ("a" <= c.lower() and c.lower() <= "z") or ("0" <= c and c <= "9")) {
             return false
@@ -591,6 +629,43 @@ fn parse_case() {
         arms.push({pats: pats, body: {k: "seq", body: body}})
     }
     return with_redirs({k: "switch", subject: subject, arms: arms})
+}
+
+// [[ expression ]]: its words, with && || ! < > kept as words
+fn parse_cond() {
+    advance() // [[
+    var words = []
+    loop {
+        let t = tok()
+        if t.t == "eof" {
+            P.incomplete = true
+            return null
+        }
+        if t.t == "w" and t.v == "]]" {
+            advance()
+            break
+        }
+        if t.t == "op" and not (t.v in ["&&", "||", "<", ">"]) {
+            return fail("unexpected '${t.v}' in [[ ]]")
+        }
+        words.push(t.v)
+        advance()
+    }
+    return with_redirs({k: "cond", words: words})
+}
+
+// parses text inside ( ... ) with its own parser state
+fn parse_program_nested(src) {
+    let saved = P
+    let r = parse_program(src)
+    P = saved
+    if r.status == "ok" {
+        return r.node
+    }
+    if r.status == "empty" {
+        return {k: "seq", body: []}
+    }
+    return fail(r.err ?? "unfinished ( ... )")
 }
 
 // -> {status: "ok" | "incomplete" | "error" | "empty", node, err}

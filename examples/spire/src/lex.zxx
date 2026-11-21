@@ -3,7 +3,7 @@
 // Words keep their quotes and $(...) as written; expansion happens when a
 // command runs. Tokens are maps: {t: "w", v: raw} or {t: "op", v: "|"}.
 
-const OPS = ["2>&1", "2>>", "&>>", "<<<", ">&2", "&&", "||", "|&", ">>", "2>", "&>", ";", "|", "&", ">", "<", "\n"]
+const OPS = ["2>&1", "2>>", "&>>", "<<<", "<<-", "<<", ">&2", "&&", "||", "|&", ">>", "2>", "&>", ";", "|", "&", ">", "<", "\n"]
 
 fn is_blank(c) {
     return c == " " or c == "\t" or c == "\r"
@@ -28,6 +28,7 @@ fn lex(src) {
     let cs = src.chars()
     let n = len(cs)
     var toks = []
+    var pending = []     // here-doc operators waiting for their bodies
     var i = 0
     while i < n {
         let c = cs[i]
@@ -45,10 +46,43 @@ fn lex(src) {
             }
             continue
         }
-        let op = op_at(cs, i)
+        let procsub = (c == "<" or c == ">") and i + 1 < n and cs[i + 1] == "("
+        let op = procsub ? null : op_at(cs, i)
         if op != null {
             toks.push({t: "op", v: op})
             i += len(op)
+            if op == "\n" and len(pending) > 0 {
+                // the lines after this one are here-document bodies
+                for h in pending {
+                    var body = ""
+                    var found = false
+                    while i < n {
+                        var j = i
+                        while j < n and cs[j] != "\n" {
+                            j += 1
+                        }
+                        var line = join(cs[i:j], "")
+                        i = j < n ? j + 1 : j
+                        var test = line
+                        if h.strip {
+                            while test.starts_with("\t") {
+                                test = test[1:]
+                            }
+                            line = test
+                        }
+                        if test == h.delim {
+                            found = true
+                            break
+                        }
+                        body = body + line + "\n"
+                    }
+                    h.body = body
+                    if not found {
+                        return {toks: toks, open: true}
+                    }
+                }
+                pending = []
+            }
             continue
         }
         if c == ")" {
@@ -64,7 +98,8 @@ fn lex(src) {
         while i < n {
             let d = cs[i]
             if not sq and not dq and depth == 0 {
-                if is_blank(d) or d == "\n" or d == ";" or d == "|" or d == "&" or d == "<" or d == ">" or d == ")" {
+                let starts_procsub = (d == "<" or d == ">") and i + 1 < n and cs[i + 1] == "(" and w == ""
+                if (is_blank(d) or d == "\n" or d == ";" or d == "|" or d == "&" or d == "<" or d == ">" or d == ")") and not starts_procsub {
                     break
                 }
             }
@@ -86,10 +121,19 @@ fn lex(src) {
             i += 1
         }
         toks.push({t: "w", v: w})
+        // the word after << is a here-doc delimiter
+        if len(toks) >= 2 and toks[-2].t == "op" and (toks[-2].v == "<<" or toks[-2].v == "<<-") {
+            let h = toks[-2]
+            h.quoted = w.index_of("'") >= 0 or w.index_of("\"") >= 0
+            h.delim = w.replace("'", "").replace("\"", "")
+            h.strip = h.v == "<<-"
+            h.body = null
+            pending.push(h)
+        }
         if sq or dq or depth > 0 {
             return {toks: toks, open: true}
         }
     }
-    let open = n > 0 and cs[n - 1] == "\\"
+    let open = (n > 0 and cs[n - 1] == "\\") or len(pending) > 0
     return {toks: toks, open: open}
 }

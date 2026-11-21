@@ -18,10 +18,11 @@
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::{FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -345,7 +346,10 @@ fn run_pipeline(stages: Vec<Vec<String>>, o: Option<BTreeMap<String, Value>>) ->
     let background = opt_bool(&o, "background");
     let mut prev_read: Option<OwnedFd> = None;
     let mut input_writer: Option<(OwnedFd, String)> = None;
-    if let Some(s) = opt_str(&o, "stdin") {
+    let timeout_ms = opt(&o, "timeout_ms").and_then(|v| v.as_i64());
+    if let Some(fd) = opt(&o, "stdin_fd").and_then(|v| v.as_i64()) {
+        prev_read = Some((fd as i32).try_into_owned()?);
+    } else if let Some(s) = opt_str(&o, "stdin") {
         prev_read = Some(open_for(&s, false, false)?);
     } else if let Some(text) = opt_str(&o, "input") {
         let (r, w) = pipe_fds()?;
@@ -369,6 +373,8 @@ fn run_pipeline(stages: Vec<Vec<String>>, o: Option<BTreeMap<String, Value>>) ->
             let (r, w) = pipe_fds()?;
             capture_read = Some(r);
             (Some(w), None)
+        } else if let Some(fd) = opt(&o, "stdout_fd").and_then(|v| v.as_i64()) {
+            (Some((fd as i32).try_into_owned()?), None)
         } else if let Some(p) = opt_str(&o, "stdout") {
             (Some(open_for(&p, true, opt_bool(&o, "append"))?), None)
         } else {
@@ -457,9 +463,37 @@ fn run_pipeline(stages: Vec<Vec<String>>, o: Option<BTreeMap<String, Value>>) ->
     }
     let mut output = String::new();
     if let Some(r) = capture_read {
-        let mut f = File::from(r);
         let mut buf = vec![];
-        let _ = f.read_to_end(&mut buf);
+        match timeout_ms {
+            None => {
+                let _ = File::from(r).read_to_end(&mut buf);
+            }
+            Some(ms) => {
+                // read until EOF or the deadline; then stop the commands
+                let deadline = std::time::Instant::now() + Duration::from_millis(ms.max(0) as u64);
+                let mut f = File::from(r);
+                loop {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        for p in &live {
+                            unsafe {
+                                libc::kill(*p, libc::SIGKILL);
+                            }
+                        }
+                        break;
+                    }
+                    let mut pfd = libc::pollfd { fd: f.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+                    if unsafe { libc::poll(&mut pfd, 1, left.as_millis().min(i32::MAX as u128) as i32) } <= 0 {
+                        continue;
+                    }
+                    let mut chunk = [0u8; 8192];
+                    match f.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+            }
+        }
         output = String::from_utf8_lossy(&buf).into_owned();
     }
     let mut statuses = vec![];
@@ -501,6 +535,84 @@ impl IntoOwned for i32 {
         }
         Ok(unsafe { OwnedFd::from_raw_fd(d) })
     }
+}
+
+// ---------------------------------------------------------------- signals
+
+static PENDING: AtomicU64 = AtomicU64::new(0);
+
+extern "C" fn note_signal(sig: libc::c_int) {
+    if (0..64).contains(&sig) {
+        PENDING.fetch_or(1 << sig, Ordering::SeqCst);
+    }
+}
+
+/// mode: "catch" (remember it for pending_signals), "ignore", or "default"
+fn trap_signal(sig: i32, mode: &str) -> Result<(), String> {
+    if !(1..64).contains(&sig) || sig == libc::SIGKILL || sig == libc::SIGSTOP {
+        return Err(format!("os.trap: can't trap signal {sig}"));
+    }
+    let handler = match mode {
+        "catch" => note_signal as extern "C" fn(libc::c_int) as libc::sighandler_t,
+        "ignore" => libc::SIG_IGN,
+        _ => {
+            let job_sig = [libc::SIGINT, libc::SIGQUIT, libc::SIGTSTP, libc::SIGTTIN, libc::SIGTTOU].contains(&sig);
+            if job_sig && interactive() {
+                libc::SIG_IGN
+            } else {
+                libc::SIG_DFL
+            }
+        }
+    };
+    unsafe {
+        libc::signal(sig, handler);
+    }
+    Ok(())
+}
+
+fn pending_signals() -> Vec<i64> {
+    let bits = PENDING.swap(0, Ordering::SeqCst);
+    (1..64).filter(|s| bits & (1 << s) != 0).collect()
+}
+
+// ---------------------------------------------------------------- regex
+
+/// POSIX extended regex: the whole match and its groups, or None.
+pub fn regex_match(pattern: &str, text: &str) -> Result<Option<Vec<String>>, String> {
+    let (Ok(cp), Ok(ct)) = (std::ffi::CString::new(pattern), std::ffi::CString::new(text)) else {
+        return Err("os.regex: text contains a NUL".into());
+    };
+    unsafe {
+        let mut re: libc::regex_t = std::mem::zeroed();
+        if libc::regcomp(&mut re, cp.as_ptr(), libc::REG_EXTENDED) != 0 {
+            return Err(format!("os.regex: bad pattern {pattern:?}"));
+        }
+        let mut m: [libc::regmatch_t; 10] = std::mem::zeroed();
+        let rc = libc::regexec(&re, ct.as_ptr(), m.len(), m.as_mut_ptr(), 0);
+        libc::regfree(&mut re);
+        if rc != 0 {
+            return Ok(None);
+        }
+        let bytes = text.as_bytes();
+        let mut groups = vec![];
+        for g in m.iter() {
+            if g.rm_so < 0 {
+                break;
+            }
+            groups.push(String::from_utf8_lossy(&bytes[g.rm_so as usize..g.rm_eo as usize]).into_owned());
+        }
+        Ok(Some(groups))
+    }
+}
+
+/// Is `path` a compiled program (ELF or Mach-O) rather than a script?
+pub fn is_native_binary(path: &str) -> bool {
+    let mut m = [0u8; 4];
+    let Ok(mut f) = File::open(path) else { return false };
+    if f.read_exact(&mut m).is_err() {
+        return false;
+    }
+    m == [0x7f, b'E', b'L', b'F'] || m == [0xcf, 0xfa, 0xed, 0xfe] || m == [0xce, 0xfa, 0xed, 0xfe]
 }
 
 // ---------------------------------------------------------------- files
@@ -715,18 +827,43 @@ fn module(args: Vec<String>) -> Value {
             Ok(Value::Bool(unsafe { libc::poll(&mut p, 1, ms as i32) } > 0))
         }),
         f("read_line", |it, _| {
+            // byte at a time from fd 0, never reading past the line: the
+            // rest of the input belongs to whatever reads it next
             flush_output(it);
-            let mut line = String::new();
-            match std::io::stdin().read_line(&mut line) {
-                Ok(0) | Err(_) => Ok(Value::Null),
-                Ok(_) => Ok(Value::str(line.trim_end_matches(['\n', '\r']))),
+            let mut line = vec![];
+            loop {
+                let b = read_byte(-1);
+                if b < 0 {
+                    if line.is_empty() {
+                        return Ok(Value::Null);
+                    }
+                    break;
+                }
+                if b == b'\n' as i64 {
+                    break;
+                }
+                line.push(b as u8);
             }
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            Ok(Value::str(&String::from_utf8_lossy(&line)))
         }),
         f("read_all", |it, _| {
             flush_output(it);
-            let mut s = String::new();
-            let _ = std::io::stdin().read_to_string(&mut s);
-            Ok(Value::str(&s))
+            let mut buf = vec![];
+            let mut chunk = [0u8; 8192];
+            loop {
+                let n = unsafe { libc::read(0, chunk.as_mut_ptr() as *mut libc::c_void, chunk.len()) };
+                if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if n <= 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n as usize]);
+            }
+            Ok(Value::str(&String::from_utf8_lossy(&buf)))
         }),
         f("isatty", |_, a| Ok(Value::Bool(unsafe { libc::isatty(a.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32) } == 1))),
         f("term_size", |_, _| {
@@ -812,6 +949,99 @@ fn module(args: Vec<String>) -> Value {
             std::process::exit(a.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32)
         }),
         f("pid", |_, _| Ok(Value::Int(std::process::id() as i64))),
+        // low-level process plumbing, for running shell code concurrently
+        f("fork", |it, _| {
+            flush_output(it);
+            let _ = std::io::stdout().flush();
+            let pid = unsafe { libc::fork() };
+            if pid < 0 {
+                return Err(format!("os.fork: {}", std::io::Error::last_os_error()));
+            }
+            if pid == 0 {
+                // the child is a plain process: default signals, no job control
+                sig_default_in_child();
+                *INTERACTIVE.lock().unwrap() = false;
+            }
+            Ok(Value::Int(pid as i64))
+        }),
+        f("pipe", |_, _| {
+            let mut fds = [0; 2];
+            if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+                return Err(format!("os.pipe: {}", std::io::Error::last_os_error()));
+            }
+            Ok(Value::list(vec![Value::Int(fds[0] as i64), Value::Int(fds[1] as i64)]))
+        }),
+        f("dup2", |it, a| {
+            flush_output(it);
+            let _ = std::io::stdout().flush();
+            let from = a.first().and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            let to = a.get(1).and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            Ok(Value::Bool(unsafe { libc::dup2(from, to) } >= 0))
+        }),
+        f("dup", |_, a| {
+            let fd = a.first().and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            Ok(Value::Int(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 10) } as i64))
+        }),
+        f("open", |_, a| {
+            // a descriptor for a file: mode "r", "w" (truncate) or "a" (append)
+            let p = need_str(&a, 0, "open")?;
+            let mode = arg_str(&a, 1).unwrap_or_else(|| "r".into());
+            let f = match mode.as_str() {
+                "w" => OpenOptions::new().write(true).create(true).truncate(true).open(&p),
+                "a" => OpenOptions::new().append(true).create(true).open(&p),
+                _ => File::open(&p),
+            };
+            Ok(match f {
+                Ok(f) => {
+                    let fd = OwnedFd::from(f);
+                    let raw = fd.as_raw_fd();
+                    std::mem::forget(fd); // the program closes it with os.close
+                    Value::Int(raw as i64)
+                }
+                Err(_) => Value::Int(-1),
+            })
+        }),
+        f("read_fd", |_, a| {
+            // everything from a descriptor until end of file
+            let fd = a.first().and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            let mut buf = vec![];
+            let mut chunk = [0u8; 8192];
+            loop {
+                let n = unsafe { libc::read(fd, chunk.as_mut_ptr() as *mut libc::c_void, chunk.len()) };
+                if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if n <= 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n as usize]);
+            }
+            Ok(Value::str(&String::from_utf8_lossy(&buf)))
+        }),
+        f("inherit", |_, a| {
+            // let child commands inherit this descriptor (for /dev/fd/N)
+            let fd = a.first().and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            Ok(Value::Bool(unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } == 0))
+        }),
+        f("close", |_, a| {
+            let fd = a.first().and_then(|v| v.as_i64()).unwrap_or(-1) as i32;
+            Ok(Value::Bool(unsafe { libc::close(fd) } == 0))
+        }),
+        f("trap", |_, a| {
+            let sig = a.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            trap_signal(sig, &arg_str(&a, 1).unwrap_or_else(|| "catch".into()))?;
+            Ok(Value::Null)
+        }),
+        f("pending_signals", |_, _| Ok(Value::list(pending_signals().into_iter().map(Value::Int).collect()))),
+        f("regex", |_, a| {
+            let p = need_str(&a, 0, "regex")?;
+            let t = arg_str(&a, 1).unwrap_or_default();
+            Ok(match regex_match(&p, &t)? {
+                Some(g) => list_of(g),
+                None => Value::Null,
+            })
+        }),
+        f("is_binary", |_, a| Ok(Value::Bool(is_native_binary(&need_str(&a, 0, "is_binary")?)))),
         // environment
         f("getenv", |_, a| Ok(std::env::var(need_str(&a, 0, "getenv")?).map(|v| Value::str(&v)).unwrap_or(Value::Null))),
         f("setenv", |_, a| {

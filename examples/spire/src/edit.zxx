@@ -694,6 +694,32 @@ fn candidates(st) {
         }
         return out
     }
+    // the command's completion rules / options from --help
+    let seg = st.buf[:s]
+    var seg_start = 0
+    for sep in [";", "|", "&", "("] {
+        let k = last_index(seg, sep)
+        if k + 1 > seg_start {
+            seg_start = k + 1
+        }
+    }
+    let words = [w for w in seg[seg_start:].split(" ") if w != ""]
+    if len(words) > 0 {
+        let rc = rule_candidates(words[0], words, word, st.buf, st.cur)
+        if rc != null {
+            if rc.nofiles or len(rc.cands) > 0 {
+                if not rc.nofiles {
+                    return rc.cands + file_candidates(st, word)
+                }
+                return rc.cands
+            }
+        }
+    }
+    return file_candidates(st, word)
+}
+
+fn file_candidates(st, word) {
+    var out = []
     // files
     var dir = ""
     var base = word
@@ -786,11 +812,16 @@ fn menu_name(t) {
 fn render_menu(st, W) {
     let names = [menu_name(c.text) for c in st.menu]
     var width = 1
-    for nm in names {
-        width = max(width, os.width(nm) + 2)
+    var dwidth = 0
+    for i in 0..len(names) {
+        width = max(width, os.width(names[i]) + 2)
+        let d = st.menu[i].desc ?? ""
+        if d != "" {
+            dwidth = max(dwidth, min(40, os.width(d)) + 4)
+        }
     }
-    width = min(width, W - 1)
-    let cols = max(1, (W - 1) / width)
+    let cell = min(width + dwidth, W - 1)
+    let cols = max(1, (W - 1) / cell)
     let rows = (len(names) + cols - 1) / cols
     let shown = min(rows, 10)
     var text = ""
@@ -804,10 +835,20 @@ fn render_menu(st, W) {
                 break
             }
             let kind = st.menu[i].kind
-            let color = kind == "dir" ? "\e[1;34m" : kind == "exec" ? "\e[1;32m" : kind == "var" ? "\e[96m" : ""
+            let color = kind == "dir" ? "\e[1;34m" : kind == "exec" ? "\e[1;32m" : kind == "var" ? "\e[96m" : kind == "option" ? "\e[36m" : ""
             let sel = i == st.sel ? "\e[7m" : ""
             let nm = names[i]
-            text = text + sel + color + nm + RESET + " " * (width - os.width(nm))
+            var used = os.width(nm)
+            text = text + sel + color + nm + RESET
+            let d = st.menu[i].desc ?? ""
+            if d != "" and dwidth > 0 {
+                let dd = os.width(d) > 40 ? d[:39] + "…" : d
+                text = text + " " * (width - used) + "\e[3;33m(" + dd + ")" + RESET
+                used = width + os.width(dd) + 2
+            }
+            if c + 1 < cols {
+                text = text + " " * max(1, cell - used)
+            }
         }
     }
     var lines = shown

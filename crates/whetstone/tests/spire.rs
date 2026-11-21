@@ -10,6 +10,7 @@ fn example() -> PathBuf {
 
 fn spire(args: &[&str]) -> (String, i32) {
     let out = Command::new(env!("CARGO_BIN_EXE_whetstone"))
+        .current_dir(std::env::temp_dir())
         .arg("run")
         .arg(example())
         .arg("--")
@@ -22,12 +23,21 @@ fn spire(args: &[&str]) -> (String, i32) {
     (text, out.status.code().unwrap_or(-1))
 }
 
+/// every tests/NAME.fish or NAME.sh, against NAME.expected
 #[test]
-fn spire_runs_its_test_script() {
-    let script = example().join("tests/basics.fish");
-    let expected = std::fs::read_to_string(example().join("tests/basics.expected")).unwrap();
-    let (out, _) = spire(&[script.to_str().unwrap()]);
-    assert_eq!(out, expected);
+fn spire_runs_its_test_scripts() {
+    let mut ran = 0;
+    for e in std::fs::read_dir(example().join("tests")).unwrap().flatten() {
+        let p = e.path();
+        if !matches!(p.extension().and_then(|x| x.to_str()), Some("fish") | Some("sh")) {
+            continue;
+        }
+        let expected = std::fs::read_to_string(p.with_extension("expected")).unwrap();
+        let (out, _) = spire(&[p.to_str().unwrap()]);
+        assert_eq!(out, expected, "{}", p.display());
+        ran += 1;
+    }
+    assert!(ran >= 4);
 }
 
 #[test]

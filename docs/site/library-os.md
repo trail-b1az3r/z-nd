@@ -67,7 +67,7 @@ A character's code. `os.chr(n)` is the reverse.
 ## Processes
 
 ::: function os.run(stages, options)
-Runs a pipeline: `stages` is a list of argument lists (or one argument list). Options: `stdin`, `stdout`, `stderr` (file paths), `append`, `stderr_append`, `stderr_to_stdout`, `input` (text for the first command), `capture` (return the output instead of showing it) and `background` (don't wait). Returns a map: `status` (the last command's), `statuses`, `output`, `errors` (e.g. `"command not found: x"`, status 127), `stopped` and `pgid`.
+Runs a pipeline: `stages` is a list of argument lists (or one argument list). Options: `stdin`, `stdout`, `stderr` (file paths), `append`, `stderr_append`, `stderr_to_stdout`, `input` (text for the first command), `capture` (return the output instead of showing it), `timeout_ms` (stop a captured command that runs too long), `stdin_fd`/`stdout_fd` (descriptors from `os.pipe`) and `background` (don't wait). Returns a map: `status` (the last command's), `statuses`, `output`, `errors` (e.g. `"command not found: x"`, status 127), `stopped` and `pgid`.
 :::
 ::: function os.interactive()
 Makes the program an interactive shell: its own process group, owning the terminal; commands run as foreground jobs that receive Ctrl-C and Ctrl-Z.
@@ -83,6 +83,18 @@ Continues a stopped or background job in the foreground and waits for it.
 :::
 ::: function os.kill(pid, signal=15)
 Sends a signal; a negative `pid` signals a process group.
+:::
+::: function os.fork()
+Splits the process; returns 0 in the child (whose signals are reset and which has no job control) and the child's pid in the parent. With `os.pipe()` (`[read_fd, write_fd]`), `os.dup2(from, to)`, `os.open(path, mode)` (`"r"`, `"w"`, `"a"`; -1 on failure), `os.dup(fd)`, `os.read_fd(fd)` (everything until end of file), `os.close(fd)` and `os.inherit(fd)` (let commands inherit it, for `/dev/fd/N`), it's how a shell runs builtins concurrently in a pipeline. `os.run` accepts `stdin_fd` / `stdout_fd` options to connect commands to such descriptors.
+:::
+::: function os.trap(signal, mode="catch")
+`"catch"` a signal (it's then reported by `os.pending_signals()`, a list of signal numbers), `"ignore"` it, or restore the `"default"`.
+:::
+::: function os.regex(pattern, text)
+POSIX extended regular expression match: the whole match and its groups as a list, or `null`.
+:::
+::: function os.is_binary(path)
+Whether a file is a compiled program (ELF or Mach-O) rather than a script.
 :::
 ::: function os.exit(code=0)
 Ends the program now.

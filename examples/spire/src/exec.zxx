@@ -13,6 +13,8 @@ var FUNCS = {}
 var ALIASES = {}
 var FLAGS = {brk: false, cont: false, ret: false, exit: false, code: 0}
 var CALL_DEPTH = 0
+var OPTS = {errexit: false, xtrace: false, pipefail: false, nounset: false}
+var COND_DEPTH = 0     // >0 inside if/while conditions and && || left sides
 
 fn out(s) {
     if len(OUTBUF) > 0 {
@@ -39,7 +41,20 @@ fn cur_input() {
     return len(INPUT) > 0 ? INPUT[-1] : null
 }
 
-// runs `src` as shell code and returns what it printed
+// what a builtin reads as stdin: given text, or the pipe on fd 0 (null
+// when stdin is just the terminal)
+fn stdin_text() {
+    if cur_input() != null {
+        return cur_input()
+    }
+    if len(INPUT) > 0 or not os.isatty(0) {
+        return os.read_all()
+    }
+    return null
+}
+
+// $(...): runs `src` in a forked copy of the shell (so `cd`, `set -e`
+// and variables inside don't leak out) and returns what it printed
 fn run_capture(src) {
     let r = parse_program(src)
     if r.status != "ok" {
@@ -48,9 +63,22 @@ fn run_capture(src) {
         }
         return ""
     }
-    OUTBUF.push("")
-    run_node(r.node)
-    return OUTBUF.pop()
+    let p = os.pipe()
+    let pid = os.fork()
+    if pid == 0 {
+        os.dup2(p[1], 1)
+        os.close(p[0])
+        os.close(p[1])
+        OUTBUF = []
+        INPUT = []
+        let st = run_node(r.node)
+        os.exit(FLAGS.exit ? FLAGS.code : st)
+    }
+    os.close(p[1])
+    let text = os.read_fd(p[0])
+    os.close(p[0])
+    STATUS = os.wait(pid).status
+    return text
 }
 
 fn run_source(src, path = "") {
@@ -87,6 +115,12 @@ fn run_node(n) {
         var st = STATUS
         for s in n.body {
             st = run_stmt(s)
+            run_pending_traps()
+            if st != 0 and OPTS.errexit and COND_DEPTH == 0 and (s.k == "cmd" or s.k == "pipe" or s.k == "subshell") {
+                // set -e
+                FLAGS.exit = true
+                FLAGS.code = st
+            }
             if stop_flow() {
                 break
             }
@@ -94,20 +128,29 @@ fn run_node(n) {
         return st
     }
     if k == "cmd" {
-        return set_status(run_cmd(n))
+        let st = set_status(run_cmd(n))
+        close_procsubs()
+        if st != 0 and "ERR" in TRAPS {
+            run_trap("ERR")
+        }
+        return st
     }
     if k == "pipe" {
         return set_status(run_pipe(n))
     }
     if k == "and" {
+        COND_DEPTH += 1
         let l = run_node(n.l)
+        COND_DEPTH -= 1
         if l != 0 or stop_flow() {
             return l
         }
         return run_node(n.r)
     }
     if k == "or" {
+        COND_DEPTH += 1
         let l = run_node(n.l)
+        COND_DEPTH -= 1
         if l == 0 or stop_flow() {
             return l
         }
@@ -123,10 +166,18 @@ fn run_node(n) {
         return run_for(n)
     }
     if k == "not" {
-        return set_status(run_node(n.x) == 0 ? 1 : 0)
+        COND_DEPTH += 1
+        let r = run_node(n.x)
+        COND_DEPTH -= 1
+        return set_status(r == 0 ? 1 : 0)
+    }
+    if k == "select" {
+        return set_status(run_select(n))
     }
     if k == "if" {
+        COND_DEPTH += 1
         let c = run_node(n.cond)
+        COND_DEPTH -= 1
         if stop_flow() {
             return c
         }
@@ -141,7 +192,9 @@ fn run_node(n) {
     if k == "while" {
         var st = 0
         loop {
+            COND_DEPTH += 1
             let c = run_node(n.cond)
+            COND_DEPTH -= 1
             if FLAGS.exit or FLAGS.ret {
                 break
             }
@@ -164,6 +217,20 @@ fn run_node(n) {
         FUNCS[n.name] = n
         return set_status(0)
     }
+    if k == "cond" {
+        return set_status(run_cond(n))
+    }
+    if k == "arith" {
+        try {
+            return set_status(arith_eval(expand_heredoc(n.expr)) != 0 ? 0 : 1)
+        } catch e {
+            err("((: ${e}")
+            return set_status(2)
+        }
+    }
+    if k == "subshell" {
+        return set_status(run_subshell(n.body))
+    }
     if k == "switch" {
         let subject = join(expand_word(n.subject), " ")
         for arm in n.arms {
@@ -179,6 +246,34 @@ fn run_node(n) {
     }
     err("internal: unknown node ${k}")
     return 1
+}
+
+// ( ... ): a forked copy of the shell, so cd/set inside don't leak out
+fn run_subshell(body) {
+    if len(OUTBUF) > 0 or cur_input() != null {
+        // its output is being captured / its input is text: use a pipe
+        let p = os.pipe()
+        let pid = os.fork()
+        if pid == 0 {
+            os.close(p[0])
+            os.dup2(p[1], 1)
+            os.close(p[1])
+            OUTBUF = []
+            let st = run_node(body)
+            os.exit(FLAGS.exit ? FLAGS.code : st)
+        }
+        os.close(p[1])
+        let r = os.run([["cat"]], {stdin_fd: p[0], capture: true})
+        os.close(p[0])
+        out(r.output)
+        return os.wait(pid).status
+    }
+    let pid = os.fork()
+    if pid == 0 {
+        let st = run_node(body)
+        os.exit(FLAGS.exit ? FLAGS.code : st)
+    }
+    return os.wait(pid).status
 }
 
 fn run_stmt(s) {
@@ -233,6 +328,7 @@ fn with_redirs_inproc(redirs, body) {
     var to_stderr = false
     var pushed_input = false
     var quiet = false
+    var saved_err = -1
     for r in redirs {
         let target = r.target == "" ? "" : join(expand_word(r.target), " ")
         if r.op == ">" or r.op == "&>" {
@@ -253,8 +349,27 @@ fn with_redirs_inproc(redirs, body) {
         } elif r.op == "<<<" {
             INPUT.push(target + "\n")
             pushed_input = true
-        } elif (r.op == "2>" or r.op == "2>>") and target == "/dev/null" {
-            quiet = true
+        } elif r.op == "<<" {
+            INPUT.push(r.quoted ? r.body : expand_heredoc(r.body))
+            pushed_input = true
+        } elif r.op == "2>&1" {
+            if saved_err < 0 {
+                saved_err = os.dup(2)
+            }
+            os.dup2(1, 2)
+        } elif r.op == "2>" or r.op == "2>>" {
+            // real redirection of fd 2, so commands run inside see it too
+            let fd = os.open(target, r.op == "2>" ? "w" : "a")
+            if fd < 0 {
+                err("${target}: can't write")
+                return 1
+            }
+            if saved_err < 0 {
+                saved_err = os.dup(2)
+            }
+            os.dup2(fd, 2)
+            os.close(fd)
+            quiet = target == "/dev/null"
         }
     }
     if capture_to != null or to_stderr {
@@ -266,6 +381,10 @@ fn with_redirs_inproc(redirs, body) {
     let st = body()
     if quiet {
         QUIET_ERRS -= 1
+    }
+    if saved_err >= 0 {
+        os.dup2(saved_err, 2)
+        os.close(saved_err)
     }
     if pushed_input {
         INPUT.pop()
@@ -310,22 +429,57 @@ fn alias_words(words) {
     return words
 }
 
+// NAME=value, NAME+=value, NAME=(a b c), NAME+=(d), NAME[i]=value
 fn do_assign(a) {
     let eq = a.index_of("=")
-    let name = a[:eq]
-    let val = join(expand_word(a[eq + 1:]), " ")
-    var_set(name, [val])
+    var name = a[:eq]
+    let raw = a[eq + 1:]
+    var append = false
+    if name.ends_with("+") {
+        append = true
+        name = name[:-1]
+    }
+    let br = name.index_of("[")
+    if br > 0 {
+        let idx = arith_eval(expand_heredoc(name[br + 1:-1]))
+        name = name[:br]
+        var v = var_lookup(name) ?? []
+        let i = idx < 0 ? len(v) + idx : idx
+        while len(v) <= i {
+            v.push("")
+        }
+        let val = join(expand_word(raw), " ")
+        v[i] = append ? v[i] + val : val
+        var_set(name, v)
+        return
+    }
+    if raw.starts_with("(") and raw.ends_with(")") {
+        // an array literal: each word expands to elements
+        var items_ = []
+        for t in lex(raw[1:-1]).toks {
+            if t.t == "w" {
+                items_ = items_ + expand_word(t.v)
+            }
+        }
+        var_set(name, append ? (var_lookup(name) ?? []) + items_ : items_)
+        return
+    }
+    let val = join(expand_word(raw), " ")
+    var_set(name, [append ? var_get1(name) + val : val])
 }
 
 fn run_cmd(n) {
     if len(n.words) == 0 {
+        // a bare assignment's status is its last command substitution's
+        STATUS = 0
         for a in n.assigns {
             do_assign(a)
         }
+        let sub_status = STATUS
         if len(n.redirs) > 0 {
-            return with_redirs_inproc(n.redirs, || 0)
+            return with_redirs_inproc(n.redirs, || sub_status)
         }
-        return 0
+        return sub_status
     }
     var argv = []
     for w in alias_words(n.words) {
@@ -336,10 +490,17 @@ fn run_cmd(n) {
     if len(argv) == 0 {
         return 0
     }
+    if OPTS.xtrace {
+        // set -x
+        os.ewrite((os.isatty(2) ? "\e[90m" : "") + "+ " + join([shell_quote(a) for a in argv], " ") + (os.isatty(2) ? "\e[0m" : "") + "\n")
+    }
     // VAR=value cmd: just for this command
     var saved = []
     for a in n.assigns {
-        let name = a[:a.index_of("=")]
+        var name = a[:a.index_of("=")]
+        if name.ends_with("+") {
+            name = name[:-1]
+        }
         saved.push([name, var_lookup(name), name in EXPORTED])
         do_assign(a)
         var_export(name)
@@ -409,6 +570,8 @@ fn run_external(stages, redirs, err_to_pipe = false) {
             opts.stdin = target
         } elif r.op == "<<<" {
             opts.input = target + "\n"
+        } elif r.op == "<<" {
+            opts.input = r.quoted ? r.body : expand_heredoc(r.body)
         } elif r.op == "2>" {
             opts.stderr = target
         } elif r.op == "2>>" {
@@ -482,38 +645,140 @@ fn run_pipe(n) {
         if argvs != null {
             var redirs = []
             for r in stages[0].redirs {
-                if r.op == "<" or r.op == "<<<" {
+                if r.op == "<" or r.op == "<<<" or r.op == "<<" {
                     redirs.push(r)
                 }
             }
             for r in stages[-1].redirs {
-                if r.op != "<" and r.op != "<<<" {
+                if r.op != "<" and r.op != "<<<" and r.op != "<<" {
                     redirs.push(r)
                 }
             }
-            return run_external(argvs, redirs, false)
+            run_external(argvs, redirs, false)
+            return pipe_result(PIPESTATUS)
         }
     }
-    // a builtin or function in the pipe: run the stages in turn, each one's
-    // output becoming the next one's input
-    var input = cur_input()
+    // a builtin, function or block in the pipe: real pipes, all stages at
+    // once. Every stage but the last runs in a forked copy of the shell; the
+    // last runs here, so `... | read x` and `... | source` keep their effect.
+    return run_pipe_forked(stages)
+}
+
+fn run_pipe_forked(stages) {
+    let n = len(stages)
+    var pids = []
+    var in_fd = -1
+    if cur_input() != null {
+        // text input (here-doc, or an outer pipe given as text): feed it in
+        let p = os.pipe()
+        let r = os.run([["cat"]], {input: cur_input(), stdout_fd: p[1], background: true})
+        os.close(p[1])
+        pids.push(r.pgid)
+        in_fd = p[0]
+    }
+    for i in 0..n - 1 {
+        let p = os.pipe()
+        let pid = os.fork()
+        if pid == 0 {
+            if in_fd >= 0 {
+                os.dup2(in_fd, 0)
+                os.close(in_fd)
+            }
+            os.dup2(p[1], 1)
+            if stages[i].err_to_pipe ?? false {
+                os.dup2(p[1], 2)
+            }
+            os.close(p[0])
+            os.close(p[1])
+            OUTBUF = []
+            INPUT = []
+            let st = run_node(stages[i])
+            os.exit(FLAGS.exit ? FLAGS.code : st)
+        }
+        os.close(p[1])
+        if in_fd >= 0 {
+            os.close(in_fd)
+        }
+        in_fd = p[0]
+        pids.push(pid)
+    }
+    // the last stage, here, reading the pipe as its stdin
+    let saved = os.dup(0)
+    os.dup2(in_fd, 0)
+    os.close(in_fd)
+    INPUT.push(null)
+    let last = run_node(stages[n - 1])
+    INPUT.pop()
+    os.dup2(saved, 0)
+    os.close(saved)
     var statuses = []
-    var i = 0
-    for s in stages {
-        let last = i == len(stages) - 1
-        INPUT.push(input)
-        if not last {
-            OUTBUF.push("")
-        }
-        statuses.push(run_node(s))
-        if not last {
-            input = OUTBUF.pop()
-        }
-        INPUT.pop()
-        i += 1
+    for pid in pids {
+        statuses.push(os.wait(pid).status)
     }
+    if cur_input() != null {
+        statuses = statuses[1:]
+    }
+    statuses.push(last)
     PIPESTATUS = statuses
+    return pipe_result(statuses)
+}
+
+// set -o pipefail: the last failing stage's status
+fn pipe_result(statuses) {
+    if OPTS.pipefail {
+        var r = 0
+        for x in statuses {
+            if x != 0 {
+                r = x
+            }
+        }
+        return r
+    }
     return statuses[-1]
+}
+
+// select NAME in WORDS; do ...; done: a numbered menu on stderr
+fn run_select(n) {
+    var vals = []
+    for w in n.items {
+        vals = vals + expand_word(w)
+    }
+    var st = 0
+    loop {
+        var i = 1
+        for v in vals {
+            os.ewrite("${i}) ${v}\n")
+            i += 1
+        }
+        let ps3 = var_lookup("PS3")
+        os.ewrite(ps3 == null ? "#? " : join(ps3, " "))
+        raw_mode(false)
+        let line = cur_input() != null ? null : os.read_line()
+        if line == null {
+            break
+        }
+        var_set("REPLY", [line])
+        var pick = ""
+        try {
+            let k = int(line.trim())
+            if k >= 1 and k <= len(vals) {
+                pick = vals[k - 1]
+            }
+        } catch e {
+            pick = ""
+        }
+        var_set(n.name, [pick])
+        st = run_node(n.body)
+        if FLAGS.brk {
+            FLAGS.brk = false
+            break
+        }
+        FLAGS.cont = false
+        if FLAGS.exit or FLAGS.ret {
+            break
+        }
+    }
+    return st
 }
 
 var JOBS = []

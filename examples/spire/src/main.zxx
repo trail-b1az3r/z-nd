@@ -13,9 +13,11 @@ import os
 #include "parse.zxx"
 #include "vars.zxx"
 #include "expand.zxx"
+#include "arith.zxx"
 #include "exec.zxx"
 #include "builtins.zxx"
 #include "edit.zxx"
+#include "complete.zxx"
 
 var INTERACTIVE = false
 
@@ -110,6 +112,7 @@ fn repl() {
     greeting()
     while not FLAGS.exit {
         reap_jobs()
+        run_pending_traps()
         emit_event("event:fish_prompt")
         let pr = make_prompt()
         // dim ⏎ marks output that didn't end with a newline (as fish does)
@@ -148,17 +151,17 @@ fn repl() {
         FLAGS.ret = false
         emit_event("event:fish_postexec")
     }
-    raw_mode(false)
-    os.exit(FLAGS.exit ? FLAGS.code : STATUS)
+    shell_exit(FLAGS.exit ? FLAGS.code : STATUS)
 }
 
 fn Main() {
     vars_import_env()
+    run_source(FISH_HELPERS)
     let args = os.args()
     if len(args) >= 2 and args[0] == "-c" {
         var_set("argv", args[2:])
         let st = run_source(args[1])
-        os.exit(FLAGS.exit ? FLAGS.code : st)
+        shell_exit(FLAGS.exit ? FLAGS.code : st)
     }
     if len(args) >= 1 and not args[0].starts_with("-") {
         let t = os.read_file(args[0])
@@ -168,11 +171,11 @@ fn Main() {
         }
         var_set("argv", args[1:])
         let st = run_source(t, args[0])
-        os.exit(FLAGS.exit ? FLAGS.code : st)
+        shell_exit(FLAGS.exit ? FLAGS.code : st)
     }
     if os.isatty(0) and os.isatty(1) {
         repl()
     }
     let st = run_source(os.read_all())
-    os.exit(FLAGS.exit ? FLAGS.code : st)
+    shell_exit(FLAGS.exit ? FLAGS.code : st)
 }

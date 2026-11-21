@@ -149,6 +149,9 @@ fn read_var(cs, i) {
                     if b < 0 {
                         b = n + b + 1
                     }
+                    if part.index_of("..") >= 0 and (a > n or a < 1) {
+                        continue // fish: a slice starting outside the list is empty
+                    }
                     let step = a <= b ? 1 : -1
                     var x = a
                     loop {
@@ -173,35 +176,90 @@ fn read_var(cs, i) {
 
 // ${...}
 fn brace_var(inner) {
-    if inner.starts_with("#") {
-        let v = var_lookup(inner[1:]) ?? []
+    if inner.starts_with("!") and len(inner) > 1 {
+        // ${!name}: the variable named by $name
+        let target = var_get1(inner[1:])
+        return target == "" ? [] : brace_var(target)
+    }
+    if inner.starts_with("#") and len(inner) > 1 {
+        let rest = inner[1:]
+        let br = rest.index_of("[")
+        if br > 0 {
+            // ${#arr[@]} counts elements, ${#arr[i]} measures one
+            let idx = rest[br + 1:rest.index_of("]")]
+            let v = var_lookup(rest[:br]) ?? []
+            if idx == "@" or idx == "*" {
+                return [str(len(v))]
+            }
+            let el = bash_index(v, idx)
+            return [str(len(el ?? ""))]
+        }
+        let v = var_lookup(rest) ?? []
+        if len(v) > 1 {
+            return [str(len(v))]
+        }
         return [str(len(join(v, " ")))]
     }
-    let colon = inner.index_of(":")
-    if colon > 0 and colon + 1 < len(inner) {
-        let name = inner[:colon]
-        let op = inner[colon + 1]
-        let word = inner[colon + 2:]
-        let v = var_lookup(name) ?? []
-        let empty = len(v) == 0 or join(v, "") == ""
-        if op == "-" {
+    var j = 0
+    while j < len(inner) and (is_name_char(inner[j]) or (j == 0 and inner[j] in ["@", "*", "?", "#"])) {
+        j += 1
+    }
+    let name = inner[:j]
+    var op = inner[j:]
+    var v = name == "@" or name == "*" ? (var_lookup("argv") ?? []) : (var_lookup(name) ?? [])
+    if op.starts_with("[") and op.index_of("]") > 0 {
+        // bash arrays: ${arr[@]} every element, ${arr[i]} one (from 0)
+        let close = op.index_of("]")
+        let idx = op[1:close]
+        op = op[close + 1:]
+        if not (idx == "@" or idx == "*") {
+            let el = bash_index(v, idx)
+            v = el == null ? [] : [el]
+        }
+    }
+    if op.starts_with(":-") or op.starts_with(":=") or op.starts_with(":+") or op.starts_with(":?") or
+       (op != "" and op[0] in ["-", "=", "+", "?"]) {
+        let colon = op.starts_with(":")
+        let kind = colon ? op[1] : op[0]
+        let word = op[colon ? 2 : 1:]
+        let unset = var_lookup(name) == null
+        let empty = unset or (colon and join(v, "") == "")
+        if kind == "-" {
             return empty ? expand_one_text(word) : v
         }
-        if op == "=" {
+        if kind == "=" {
             if empty {
                 var_set(name, expand_one_text(word))
             }
             return var_lookup(name)
         }
-        if op == "+" {
+        if kind == "+" {
             return empty ? [] : expand_one_text(word)
         }
+        if kind == "?" and empty {
+            err("${name}: " + (word == "" ? "parameter not set" : join(expand_one_text(word), "")))
+            return []
+        }
+        return v
     }
-    let r = read_var(inner.chars(), 0)
-    if r == null {
-        return []
+    if op == "" {
+        return v
     }
-    return r.vals
+    return [param_op(x, op) for x in v]
+}
+
+// arr[i] with bash's 0-based (and negative-from-the-end) indices
+fn bash_index(v, idx) {
+    var i = 0
+    try {
+        i = arith_eval(idx)
+    } catch e {
+        return null
+    }
+    if i < 0 {
+        i = len(v) + i
+    }
+    return i >= 0 and i < len(v) ? v[i] : null
 }
 
 fn expand_one_text(word) {
@@ -325,6 +383,12 @@ fn expand_simple(raw, noglob = false) {
                     j += 2
                     continue
                 }
+                if d == "$" and j + 2 < n and cs[j + 1] == "(" and cs[j + 2] == "(" {
+                    let p = scan_parens(cs, j + 1)
+                    t = t + arith_text(p.text[1:-1])
+                    j = p.next
+                    continue
+                }
                 if d == "$" and j + 1 < n {
                     if cs[j + 1] == "(" {
                         let p = scan_parens(cs, j + 1)
@@ -370,6 +434,13 @@ fn expand_simple(raw, noglob = false) {
             i += 2
             continue
         }
+        if c == "$" and i + 2 < n and cs[i + 1] == "(" and cs[i + 2] == "(" {
+            let p = scan_parens(cs, i + 1)
+            add(arith_text(p.text[1:-1]), true)
+            any = true
+            i = p.next
+            continue
+        }
         if c == "$" and i + 1 < n {
             if cs[i + 1] == "(" {
                 let p = scan_parens(cs, i + 1)
@@ -398,6 +469,14 @@ fn expand_simple(raw, noglob = false) {
                 i = r.next
                 continue
             }
+        }
+        if (c == "<" or c == ">") and i + 1 < n and cs[i + 1] == "(" {
+            // <(cmd) / >(cmd): the command's output (or input) as a file name
+            let p = scan_parens(cs, i + 1)
+            add(process_substitution(p.text, c == "<"), true)
+            any = true
+            i = p.next
+            continue
         }
         if c == "(" {
             // fish command substitution: one argument per output line
@@ -434,4 +513,43 @@ fn expand_simple(raw, noglob = false) {
         k += 1
     }
     return out
+}
+
+// here-document text: $var, ${...}, $(cmd) and $((...)) expand; quotes are
+// ordinary characters; \$ \` \\ escape
+fn expand_heredoc(text) {
+    let wrapped = "\"" + text.replace("\"", "\\\"") + "\""
+    return join(expand_word(wrapped, true), " ")
+}
+
+var PROCSUB_FDS = []
+
+fn process_substitution(src, reading) {
+    let p = os.pipe()
+    let pid = os.fork()
+    if pid == 0 {
+        if reading {
+            os.dup2(p[1], 1)
+        } else {
+            os.dup2(p[0], 0)
+        }
+        os.close(p[0])
+        os.close(p[1])
+        OUTBUF = []
+        INPUT = []
+        let st = run_source(src)
+        os.exit(st)
+    }
+    let keep = reading ? p[0] : p[1]
+    os.close(reading ? p[1] : p[0])
+    os.inherit(keep)
+    PROCSUB_FDS.push(keep)
+    return "/dev/fd/" + str(keep)
+}
+
+fn close_procsubs() {
+    for fd in PROCSUB_FDS {
+        os.close(fd)
+    }
+    PROCSUB_FDS = []
 }
