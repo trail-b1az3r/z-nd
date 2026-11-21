@@ -75,6 +75,40 @@ fn builtin_commandline(argv) {
     var cut = false
     var token = false
     var cursor = false
+    var mode = "replace"
+    var funcs = false
+    var texts = []
+    var i = 1
+    while i < len(argv) {
+        let a = argv[i]
+        i += 1
+        if a == "--" {
+            texts = texts + argv[i:]
+            break
+        }
+        if a == "-r" or a == "--replace" {
+            mode = "replace"
+        } elif a == "-i" or a == "--insert" {
+            mode = "insert"
+        } elif a == "-a" or a == "--append" {
+            mode = "append"
+        } elif a == "-f" or a == "--function" {
+            funcs = true
+        } elif not a.starts_with("-") or len(a) == 1 {
+            texts.push(a)
+        }
+    }
+    if EDIT != null {
+        CMDLINE = {buf: EDIT.buf, cur: EDIT.cur}
+    }
+    if funcs {
+        for f in texts {
+            for x in INPUT_FUNCTIONS[f] ?? [] {
+                KEYQ.push(x)
+            }
+        }
+        return 0
+    }
     for a in argv[1:] {
         if a.starts_with("--") {
             tokens = tokens or a == "--tokenize" or a == "--tokens-expanded"
@@ -88,9 +122,16 @@ fn builtin_commandline(argv) {
             cursor = cursor or a.index_of("C") >= 0
         }
     }
+    if cursor and len(texts) > 0 and EDIT != null {
+        EDIT.cur = min(len(EDIT.buf), max(0, int(texts[0])))
+        return 0
+    }
     if cursor {
         outl(str(CMDLINE.cur))
         return 0
+    }
+    if len(texts) > 0 {
+        return commandline_edit(token ? "token" : mode, join(texts, " "))
     }
     var text = cut ? CMDLINE.buf[:CMDLINE.cur] : CMDLINE.buf
     // only the current command

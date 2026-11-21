@@ -482,7 +482,13 @@ fn run_cmd(n) {
         return sub_status
     }
     var argv = []
+    let raw_words = n.words[0] == "bind" and not ("bind" in FUNCS)
     for w in alias_words(n.words) {
+        if raw_words and len(argv) > 0 and w.index_of("\\") >= 0 and not w.starts_with("\"") {
+            // bind keeps fish key escapes (\cf, \e[A) as written
+            argv.push(w.starts_with("'") and w.ends_with("'") ? w[1:-1] : w)
+            continue
+        }
         for x in expand_word(w) {
             argv.push(x)
         }

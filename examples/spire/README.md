@@ -21,6 +21,7 @@ examples/spire/spire script.fish a b     # a script, with $argv
 - **The prompt**: `user ❯ ` then what you type; the `❯` turns red after a failure, the git branch shows on the right inside a repository, and each new prompt fades in (`set spire_animate no` turns that off).
 - **Editing**: fish's colors for syntax highlighting (unknown commands red, valid paths underlined), autosuggestions from history (→ accepts, Alt-→ one word), ↑/↓ history search by prefix, Ctrl-R, Tab completion of commands, files and `$variables` with a menu (Tab again to choose), abbreviations expanding on space, "did you mean" for typos, and `cd`-less directory names.
 - **Fish configs**: at startup it runs `~/.config/fish/conf.d/*.fish` and `config.fish`, autoloads `functions/NAME.fish`, and uses your `fish_prompt`, `fish_right_prompt` and `fish_greeting`. Functions with `--on-event fish_prompt/fish_preexec/fish_postexec` or `--on-variable PWD` fire.
+- **Key bindings**: `bind` with fish's key notation (old `\\cf`, `\\e[A`; new `ctrl-f`, `alt-x`, `up`; `-k` names), binding keys to fish input functions (`forward-char`, `history-search-backward`, `accept-autosuggestion`, …) or to commands that edit the line with `commandline -r/-i/-a/-t/-C/-f`; `functions --copy`.
 - **ls, ll, la** behave like fish's: color and `-F` indicators on a terminal, plain when piped.
 
 ## Files

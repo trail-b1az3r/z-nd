@@ -395,6 +395,15 @@ fn builtin_history(argv) {
 }
 
 fn builtin_functions(argv) {
+    if len(argv) == 4 and (argv[1] == "-c" or argv[1] == "--copy") {
+        if not (argv[2] in FUNCS) and not try_autoload(argv[2]) {
+            err("functions --copy: ${argv[2]}: no such function")
+            return 1
+        }
+        let f = FUNCS[argv[2]]
+        FUNCS[argv[3]] = {k: "func", name: argv[3], body: f.body, args: f.args, desc: f.desc, events: []}
+        return 0
+    }
     if len(argv) > 2 and (argv[1] == "-e" or argv[1] == "--erase") {
         for n in argv[2:] {
             if n in FUNCS {
@@ -887,11 +896,6 @@ fn builtin_math(argv) {
         err("math: ${e}: ${src}")
         return 3
     }
-}
-
-// key bindings: accepted so fish configs load; spire's own keys stay
-fn builtin_bind(argv) {
-    return 0
 }
 
 // command [-q|-s|-v] NAME [ARGS]: an external command, skipping functions

@@ -18,6 +18,7 @@ import os
 #include "builtins.zxx"
 #include "edit.zxx"
 #include "complete.zxx"
+#include "bind.zxx"
 
 var INTERACTIVE = false
 

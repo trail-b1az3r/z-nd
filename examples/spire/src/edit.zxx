@@ -514,10 +514,12 @@ fn read_line_interactive(left, right, animate) {
         animate_prompt(st.ptail)
     }
     redraw(st)
+    EDIT = st
     loop {
-        let k = os.read_key()
+        let k = next_key(st)
         if k == "" {
             raw_mode(false)
+            EDIT = null
             return null
         }
         if st.menu != null and k != "\t" and k != "\e[Z" {
@@ -535,6 +537,7 @@ fn read_line_interactive(left, right, animate) {
             redraw(st, true)
             os.write("\r\n")
             raw_mode(false)
+            EDIT = null
             return st.buf
         }
         if k == ctrl("c") {
@@ -548,6 +551,7 @@ fn read_line_interactive(left, right, animate) {
         } elif k == ctrl("d") {
             if st.buf == "" {
                 raw_mode(false)
+                EDIT = null
                 return null
             }
             st.buf = st.buf[:st.cur] + st.buf[st.cur + 1:]
