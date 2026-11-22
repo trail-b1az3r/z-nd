@@ -19,7 +19,6 @@ const keywordDocs: Record<string, string> = {
   'continue': 'Continue to the next iteration.',
   'true': 'Boolean true.',
   'false': 'Boolean false.',
-  'None': 'Optional/empty value (Python-compatible spelling).',
   'Some': 'Optional-value constructor.',
   'Ok': 'Successful result value.',
   'Err': 'Error result value.',
@@ -38,7 +37,7 @@ const keywordDocs: Record<string, string> = {
   'os': 'Host OS extension: terminal, processes, filesystem, and environment access outside the sandbox.',
   'Extender': 'Rust trait used by host extensions to add modules or rewrite code.',
   'whetstone': 'Compiler/bundler and project runner; uses .wtf Whetstone Translation Files.',
-  'None': 'Null/empty value.'
+  'None': 'Null/empty value (Python-compatible spelling).'
 };
 
 const completionItems: vscode.CompletionItem[] = [];
