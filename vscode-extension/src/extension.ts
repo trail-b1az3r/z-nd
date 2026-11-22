@@ -61,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
       provideCompletionItems(document, position) {
         const linePrefix = document.lineAt(position).text.slice(0, position.character);
         const items = completionItems.slice();
-        const importMatch = linePrefix.match(/\\bimport\\s+([\\w.]*)$/);
+        const importMatch = linePrefix.match(/\bimport\s+([\w.]*)$/);
         if (importMatch) {
           const moduleItem = new vscode.CompletionItem('nd', vscode.CompletionItemKind.Module);
           moduleItem.detail = 'N-dimensional array extender';
@@ -83,7 +83,7 @@ export function activate(context: vscode.ExtensionContext) {
         const word = document.getText(range);
         const description = keywordDocs[word];
         if (!description) return;
-        return new vscode.Hover(new vscode.MarkdownString('**' + word + '**\\n\\n' + description), range);
+        return new vscode.Hover(new vscode.MarkdownString('**' + word + '**\n\n' + description), range);
       }
     })
   );
