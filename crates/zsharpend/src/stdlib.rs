@@ -227,7 +227,29 @@ pub fn builtin(name: &str) -> Option<Value> {
             v => v.as_f64().map(Value::Float).ok_or(format!("float: can't convert {}", v.type_name())),
         }),
         "bool" => f(name, |_, a| Ok(Value::Bool(arg(&a, 0).truthy()))),
-        "type" => f(name, |_, a| Ok(Value::str(&arg(&a, 0).type_name()))),
+        "type" | "type_of" => f(name, |_, a| Ok(Value::str(&arg(&a, 0).type_name()))),
+        "is_type" => f(name, |_, a| {
+            let v = arg(&a, 0);
+            let wanted = text(&a, 1).to_ascii_lowercase();
+            let actual = v.type_name().to_ascii_lowercase();
+            let matches = match wanted.as_str() {
+                "number" | "numeric" => matches!(v, Value::Int(_) | Value::Float(_)),
+                "str" | "text" => matches!(v, Value::Str(_)),
+                "integer" => matches!(v, Value::Int(_)),
+                "boolean" => matches!(v, Value::Bool(_)),
+                "nil" | "none" => matches!(v, Value::Null),
+                _ => actual == wanted,
+            };
+            Ok(Value::Bool(matches))
+        }),
+        "is_number" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Int(_) | Value::Float(_))))),
+        "is_int" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Int(_))))),
+        "is_float" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Float(_))))),
+        "is_string" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Str(_))))),
+        "is_bool" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Bool(_))))),
+        "is_list" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::List(_))))),
+        "is_map" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Map(_))))),
+        "is_null" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Null))),
         "range" => f(name, |_, a| {
             if a.len() == 1 {
                 Ok(Value::Range(0, int(&a, 0, "range")?))
@@ -520,7 +542,7 @@ pub const GLOBALS: &[&str] = &[
     "with_alpha", "push", "pop", "map", "filter", "reduce", "sum", "sort", "reverse", "join", "first", "last", "slice", "zip", "upper", "lower",
     "trim", "split", "contains", "starts_with", "ends_with", "replace", "chars", "index_of", "repeat", "keys", "values", "has", "remove", "get",
     "NVec2", "vec2", "assert", "Canvas", "enumerate", "items", "any", "all", "list", "printf", "format", "Some", "Ok", "Err", "is_ok", "is_err",
-    "is_some", "is_none", "unwrap", "unwrap_or",
+    "is_some", "is_none", "unwrap", "unwrap_or", "type_of", "is_type", "is_number", "is_int", "is_float", "is_string", "is_bool", "is_list", "is_map", "is_null",
 ];
 
 pub fn install(it: &mut Interp) {
