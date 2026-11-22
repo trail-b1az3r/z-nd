@@ -1,0 +1,9 @@
+{
+  "Function": { "prefix": "fn", "body": ["fn ${1:name}(${2:args}) {", "\t${3}", "}"], "description": "Function" },
+  "Class": { "prefix": "class", "body": ["class ${1:Name} {", "\t${2}", "}"], "description": "Class-like declaration" },
+  "If else": { "prefix": "if", "body": ["if (${1:condition}) {", "\t${2}", "} else {", "\t${3}", "}"], "description": "Conditional" },
+  "For loop": { "prefix": "for", "body": ["for (${1:init}; ${2:condition}; ${3:step}) {", "\t${4}", "}"], "description": "For loop" },
+  "Print": { "prefix": "print", "body": ["printf(\"${1:%s}\\n\", ${2:value});"], "description": "Printf-style print" },
+  "Include": { "prefix": "include", "body": ["#include \"${1:header}\""], "description": "Include header" },
+  "Switch": { "prefix": "switch", "body": ["switch (${1:value}) {", "\tcase ${2:case}: ", "\t\t${3}", "\tbreak;", "}"], "description": "Switch" }
+}
