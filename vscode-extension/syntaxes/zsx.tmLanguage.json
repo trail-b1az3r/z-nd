@@ -1,0 +1,4 @@
+{
+  "scopeName": "source.zsharpplusplus.zsx",
+  "patterns": [{ "include": "source.zsharpplusplus" }]
+}
