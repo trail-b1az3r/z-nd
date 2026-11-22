@@ -1,0 +1,27 @@
+use serde::{Deserialize, Serialize};
+use std::{env, fs, path::{Path, PathBuf}, process::{Command, ExitCode}};
+
+const MANIFEST: &str = "zap.json";
+const LOCK: &str = "zap.lock";
+#[derive(Debug, Serialize, Deserialize)]
+struct Package { name: String, version: String, #[serde(default = "default_entry")] entry: String, #[serde(default)] description: String, #[serde(default)] dependencies: std::collections::BTreeMap<String, String> }
+fn default_entry() -> String { "src/main.zxx".into() }
+fn help() { println!("zap — local-first Zsharpend package manager\n\nUSAGE\n  zap init [name]\n  zap run [file]\n  zap check\n  zap add <name> <local-folder>\n  zap remove <name>\n  zap list\n  zap install <folder>\n  zap help"); }
+fn root() -> PathBuf { env::current_dir().unwrap_or_else(|_| PathBuf::from(".")) }
+fn manifest() -> PathBuf { root().join(MANIFEST) }
+fn valid_name(s: &str) -> bool { !s.trim().is_empty() && s.len() <= 96 && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) }
+fn read_package(path: &Path) -> Result<Package, String> { let text=fs::read_to_string(path).map_err(|e|format!("{}: {e}",path.display()))?; serde_json::from_str(&text).map_err(|e|format!("{}: invalid manifest: {e}",path.display())) }
+fn save(p: &Package) -> Result<(),String> { fs::write(manifest(),serde_json::to_string_pretty(p).map_err(|e|e.to_string())?+"\n").map_err(|e|e.to_string()) }
+fn save_lock(p:&Package)->Result<(),String>{let entries=p.dependencies.iter().map(|(name,path)|serde_json::json!({"name":name,"path":path,"source":"local"})).collect::<Vec<_>>();fs::write(root().join(LOCK),serde_json::to_string_pretty(&entries).map_err(|e|e.to_string())?+"\n").map_err(|e|e.to_string())}
+fn run(cmd:&str,args:&[String])->Result<(),String>{let status=Command::new(cmd).args(args).status().map_err(|e|format!("could not start {cmd}: {e}"))?;if !status.success(){return Err(format!("{cmd} exited with {status}"))}Ok(())}
+fn copy_dir(src:&Path,dst:&Path)->Result<(),String>{fs::create_dir_all(dst).map_err(|e|e.to_string())?;for item in fs::read_dir(src).map_err(|e|e.to_string())?{let item=item.map_err(|e|e.to_string())?;let n=item.file_name();if n=="target"||n==".git"{continue}let from=item.path();let to=dst.join(n);if from.is_dir(){copy_dir(&from,&to)?}else{fs::copy(&from,&to).map_err(|e|e.to_string())?;}}Ok(())}
+fn execute(a:&[String])->Result<(),String>{let Some(cmd)=a.first().map(String::as_str)else{help();return Ok(())};match cmd{
+"help"|"--help"|"-h"=>help(),
+"init"=>{let name=a.get(1).cloned().unwrap_or_else(||root().file_name().unwrap_or_default().to_string_lossy().to_string());if !valid_name(&name){return Err("invalid project name (letters, digits, dot, underscore, hyphen only)".into())}if manifest().exists(){return Err("zap.json already exists in this folder".into())}fs::create_dir_all("src").map_err(|e|e.to_string())?;let p=Package{name,version:"0.1.0".into(),entry:default_entry(),description:String::new(),dependencies:Default::default()};save(&p)?;fs::write(&p.entry,"Printl(\"Hello from Zsharpend!\")\n").map_err(|e|e.to_string())?;save_lock(&p)?;println!("Project initialized. Run: zap run");},
+"run"|"check"=>{let p=read_package(&manifest())?;if !valid_name(&p.name){return Err("invalid package name in zap.json".into())}let entry=a.get(1).cloned().unwrap_or(p.entry);if !Path::new(&entry).is_file(){return Err(format!("entry file not found: {entry}"))}if cmd=="check"{run("whetstone",&["check".into(),root().to_string_lossy().into_owned()])?}else{run("whetstone",&["run".into(),entry])?}},
+"add"=>{if a.len()<3{return Err("usage: zap add <dependency-name> <local-folder>".into())}let name=&a[1];if !valid_name(name){return Err("invalid dependency name".into())}let src=PathBuf::from(&a[2]);if !src.is_dir(){return Err(format!("dependency folder does not exist: {}",src.display()))}let mut p=read_package(&manifest())?;if p.dependencies.contains_key(name){return Err(format!("dependency {name} already added"))}let absolute=fs::canonicalize(src).map_err(|e|e.to_string())?;p.dependencies.insert(name.clone(),absolute.to_string_lossy().into_owned());save(&p)?;save_lock(&p)?;println!("Added local dependency {name}");},
+"remove"=>{let name=a.get(1).ok_or("usage: zap remove <name>")?;let mut p=read_package(&manifest())?;if p.dependencies.remove(name).is_none(){return Err(format!("dependency {name} not found"))}save(&p)?;save_lock(&p)?;println!("Removed {name}");},
+"list"=>{let p=read_package(&manifest())?;println!("{} v{}\nEntry: {}",p.name,p.version,p.entry);if p.dependencies.is_empty(){println!("No dependencies")}for(n,path)in p.dependencies{println!("{n} => {path}")}},
+"install"=>{let src=PathBuf::from(a.get(1).ok_or("usage: zap install <folder>")?);let p=read_package(&src.join(MANIFEST))?;if !valid_name(&p.name){return Err("invalid package name".into())}let base=env::var_os("ZSHARPEND_HOME").map(PathBuf::from).unwrap_or_else(||env::var_os("HOME").map(PathBuf::from).unwrap_or_else(||PathBuf::from(".")).join(".zsharpend"));let dst=base.join("packages").join(&p.name);if dst.exists(){return Err(format!("package already installed: {}",dst.display()))}copy_dir(&src,&dst)?;println!("Installed {} {} into {}",p.name,p.version,dst.display());},
+other=>return Err(format!("unknown command {other} (use zap help)"))}Ok(())}
+fn main()->ExitCode{let args:Vec<String>=env::args().skip(1).collect();if let Err(e)=execute(&args){eprintln!("zap: {e}");return ExitCode::FAILURE}ExitCode::SUCCESS}
