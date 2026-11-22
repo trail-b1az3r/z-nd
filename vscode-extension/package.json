@@ -1,0 +1,35 @@
+{
+  "name": "zsharpend-zsharp-plus-plus",
+  "displayName": "Zsharpend and Z#++",
+  "description": "Syntax highlighting, snippets, completion, hover help, and a syntax book for Zsharpend (.zxx) and Z#++ (.zsp, .zsx, .zsg).",
+  "version": "0.1.0",
+  "publisher": "trail-b1az3r",
+  "license": "MIT",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:zxx", "onLanguage:zsp", "onLanguage:zsx", "onLanguage:zsg"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      { "id": "zxx", "aliases": ["Zsharpend", "zxx"], "extensions": [".zxx"], "configuration": "./language-configuration.json" },
+      { "id": "zsp", "aliases": ["Z#++", "Z Sharp Plus Plus", "zsp"], "extensions": [".zsp"], "configuration": "./language-configuration.json" },
+      { "id": "zsx", "aliases": ["Z#++ (ZSX)", "zsx"], "extensions": [".zsx"], "configuration": "./language-configuration.json" },
+      { "id": "zsg", "aliases": ["Z#++ GPU", "zsg"], "extensions": [".zsg"], "configuration": "./language-configuration.json" }
+    ],
+    "grammars": [
+      { "language": "zxx", "scopeName": "source.zsharpend", "path": "./syntaxes/zsharpend.tmLanguage.json" },
+      { "language": "zsp", "scopeName": "source.zsharpplusplus", "path": "./syntaxes/zsharp-plus-plus.tmLanguage.json" },
+      { "language": "zsx", "scopeName": "source.zsharpplusplus.zsx", "path": "./syntaxes/zsx.tmLanguage.json" },
+      { "language": "zsg", "scopeName": "source.zsharpplusplus.zsg", "path": "./syntaxes/zsg.tmLanguage.json" }
+    ],
+    "snippets": [
+      { "language": "zxx", "path": "./snippets/zsharpend.json" },
+      { "language": "zsp", "path": "./snippets/zsharp-plus-plus.json" },
+      { "language": "zsx", "path": "./snippets/zsharp-plus-plus.json" }
+    ],
+    "commands": [{ "command": "zsharp.openSyntaxBook", "title": "Zsharpend/Z#++: Open Syntax Book" }],
+    "menus": { "commandPalette": [{ "command": "zsharp.openSyntaxBook" }] }
+  },
+  "scripts": { "compile": "tsc -p .", "vscode:prepublish": "npm run compile" },
+  "devDependencies": { "@types/vscode": "^1.85.0", "@types/node": "^20.11.0", "typescript": "^5.4.0" }
+}
