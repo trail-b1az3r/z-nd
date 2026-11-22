@@ -1,3 +1,8 @@
+## Native-language direction
+
+The evolution plan for a less Rust-shaped language, runtime-interpreted types, a more distinctive syntax, and the ZAP package manager is tracked in [the native-language roadmap](docs/native-language-roadmap.md). This direction preserves existing Z#++ compatibility while developing a more native Zsharpend dialect and tooling.
+
+
 # z-nd — Zsharpend
 
 **Zsharpend** is the next Z#++: a small, sandboxed, embeddable scripting language whose programs are `.zxx` files, compiled and run by **Whetstone**. It keeps everything Z#++ (and Sam-astro's Z#) could do — `.zsp`, `.zsx` and `.zsg` files load unchanged — and adds:
