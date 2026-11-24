@@ -1144,6 +1144,10 @@ impl Extender for Os {
         it.limits.steps = u64::MAX;
         it.limits.time = Duration::from_secs(60 * 60 * 24 * 365 * 100);
         it.limits.depth = it.limits.depth.max(256);
+        // real programs get real randomness (a host's explicit seed, like
+        // `whetstone run --seed`, is applied after this and still wins)
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        it.seed(now.as_nanos() as u64 ^ ((std::process::id() as u64) << 32));
     }
     fn modules(&self, _it: &mut Interp) -> Vec<(String, Value)> {
         vec![("os".into(), module(self.args.clone()))]
