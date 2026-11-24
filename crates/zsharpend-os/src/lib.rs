@@ -404,10 +404,18 @@ fn run_pipeline(stages: Vec<Vec<String>>, o: Option<BTreeMap<String, Value>>) ->
         }
         let target = pgid;
         let job_control = interactive();
+        let foreground = job_control && !background && !capture;
         unsafe {
             cmd.pre_exec(move || {
                 if job_control {
                     libc::setpgid(0, target);
+                }
+                if foreground {
+                    // take the terminal ourselves too: otherwise a program
+                    // that reads it at once can beat the parent's tcsetpgrp
+                    // and be stopped by SIGTTIN/SIGTTOU
+                    libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+                    libc::tcsetpgrp(0, libc::getpgrp());
                 }
                 sig_default_in_child();
                 Ok(())
