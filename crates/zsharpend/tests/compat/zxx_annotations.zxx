@@ -1,0 +1,19 @@
+// Type annotations that existed before the native type work, and what they do.
+struct Size { w: int, h: int }
+
+fn half(x: int) -> float { return x / 2.0 }
+
+fn Main() {
+    let a: int = 2.9
+    let b: float = 3
+    let c: string = 42
+    let d: bool = "yes"
+    let e: u8 = 300
+    let f: i16 = 70000
+    let g: list = [1]
+    let h: Size = Size { w: 1, h: 2 }
+    let i: int
+    let j: string
+    Printl(a, b, c, d, e, f, g, h.w, i, j == "")
+    Printl(half(3), type(a), type(b), type(c))
+}

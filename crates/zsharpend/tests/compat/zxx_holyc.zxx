@@ -1,0 +1,23 @@
+// From HolyC: print statements, bare calls, switch ranges, typed declarations, #include.
+#include "_util.zxx"
+
+U0 Hello() {
+    "Hello from HolyC style\n";
+}
+
+fn Main() {
+    Hello;
+    I64 count = 3
+    F64 ratio = 0.5
+    "%d items at %5.2f%% (%-4s|%04d|%x)\n", count, ratio * 100, "ok", 42, 255;
+    for n in [0, 3, 7, 12] {
+        switch n {
+            case 0: "zero ";
+            case 1...5: "small ";
+            case 6, 7: "lucky ";
+            default: "big ";
+        }
+    }
+    "\n";
+    Printl(Twice(4), format("%s=%d", "x", 7))
+}

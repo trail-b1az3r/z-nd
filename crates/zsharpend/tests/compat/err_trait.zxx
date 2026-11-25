@@ -1,0 +1,4 @@
+trait T { fn need(self) }
+struct S { x: int }
+impl T for S { }
+fn Main() {}

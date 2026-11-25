@@ -1,0 +1,2 @@
+struct Size { w: int, h: int }
+func area(s: Size) -> int

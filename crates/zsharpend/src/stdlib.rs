@@ -249,7 +249,7 @@ pub fn builtin(name: &str) -> Option<Value> {
         "is_bool" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Bool(_))))),
         "is_list" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::List(_))))),
         "is_map" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Map(_))))),
-        "is_null" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Null))),
+        "is_null" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Null)))),
         "range" => f(name, |_, a| {
             if a.len() == 1 {
                 Ok(Value::Range(0, int(&a, 0, "range")?))

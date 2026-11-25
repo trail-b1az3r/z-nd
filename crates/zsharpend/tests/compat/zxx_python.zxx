@@ -1,0 +1,14 @@
+// From Python: keyword arguments, defaults, decorators, None/True/False.
+fn box(width, height = 1, label = "box") { return "${label}: ${width}x${height}" }
+
+fn twice(f) { return |x| f(f(x)) }
+
+@twice
+fn inc(x) { return x + 1 }
+
+fn Main() {
+    Printl(box(3), box(3, 2), box(width=5, label="wide"))
+    Printl(inc(5))
+    Printl(None == null, True and not False)
+    Printl([w.upper() for w in ["tea", "toast", "jam"] if w.starts_with("t")])
+}

@@ -1,0 +1,45 @@
+// From Rust: enums with data, traits, match, Ok/Err with ?, loop, sized ints.
+enum Shape {
+    Circle(r),
+    Rect(w, h),
+    Empty,
+}
+
+trait Area {
+    fn area(self) -> float
+    fn describe(self) { return "area ${round(self.area())}" }
+}
+
+impl Area for Shape {
+    fn area(self) -> float {
+        return match self {
+            Circle(r) => PI * r * r,
+            Rect(w, h) => w * h,
+            _ => 0.0,
+        }
+    }
+}
+
+fn parse_num(s) {
+    if s == "" { return Err("empty") }
+    return Ok(int(s))
+}
+
+fn total(a, b) {
+    let x = parse_num(a)?
+    let y = parse_num(b)?
+    return Ok(x + y)
+}
+
+fn Main() {
+    let mut shapes = [Shape::Circle(1), Rect(2, 3), Empty]
+    for s in shapes { Printl(s.describe()) }
+    Printl(total("2", "40"), total("2", ""))
+    Printl(unwrap(total("1", "1")), total("", "1").unwrap_or(-1))
+    Printl(match total("5", "5") { Ok(v) => "got ${v}", Err(e) => "failed: ${e}" })
+    let maybe = None
+    Printl(match maybe { Some(v) => v, _ => "nothing" })
+    let byte: u8 = 300
+    let small: i8 = 200
+    Printl(byte, small)
+}

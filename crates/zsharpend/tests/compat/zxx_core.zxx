@@ -1,0 +1,46 @@
+// .zxx core: declarations, control flow, strings, lists, maps, comprehensions.
+const LIMIT = 3
+var counter = 0
+
+fn bump() { counter += 1 }
+
+fn Main() {
+    let name = "world"
+    Printl("Hello, ${name}! ${1 + 2}")
+    let mut total = 0
+    for i in 0..LIMIT { total += i }
+    for i in 0..=LIMIT { total += i }
+    Printl(total)
+    var k = 0
+    while k < 5 { k += 2 }
+    loop {
+        k -= 1
+        if k < 3 { break }
+    }
+    Printl(k)
+    if k == 2 { Printl("two") } elif k == 3 { Printl("three") } else { Printl("other") }
+    bump()
+    bump()
+    Printl(counter)
+    let xs = [10, 20, 30, 40, 50]
+    Printl(xs[0], xs[-1], xs[1:3], xs[::2], xs[::-1])
+    xs[1:3] = [21, 22, 23]
+    Printl(xs, len(xs))
+    Printl([x * x for x in [1, 2, 3] if x != 2], { w: len(w) for w in ["ab", "abc"] })
+    let (a, b) = (1, 2)
+    a, b = b, a
+    Printl(a, b)
+    for (i, v) in enumerate(["p", "q"]) { Print(i, v, "") }
+    Printl("")
+    let m = { tea: 4 }
+    m["jam"] = 0
+    for (key, v) in items(m) { Print("${key}=${v} ") }
+    Printl("")
+    Printl("jam" in m, "milk" not in m, get(m, "milk", -1))
+    Printl("héllo"[1], len("héllo"), "abc"[-1], "ab" * 3, "Zs".upper())
+    Printl(len("\e[1m"), len("\x1b"), "\x41\u{42}", len("\u{1F600}"))
+    Printl(7 / 2, 7 / 2.0, 7 % 3, 2 ** 10, -7 / 2)
+    Printl(true and not false, null ?? "dflt", 1 < 2 ? "yes" : "no")
+    let double = |x| x * 2
+    Printl([1, 2] |> map(double), double(21))
+}

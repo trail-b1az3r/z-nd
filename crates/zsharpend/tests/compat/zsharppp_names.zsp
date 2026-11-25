@@ -1,0 +1,9 @@
+// Words reserved only in .zxx (fn, loop, case, enum, ...) stay ordinary names in .zsp.
+func Main() {
+    let loop = 1
+    let case = 2
+    let fn = 3
+    let enum = 4
+    let elif = 5
+    Printl(loop + case + fn + enum + elif)
+}

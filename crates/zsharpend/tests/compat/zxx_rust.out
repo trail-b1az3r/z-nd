@@ -1,0 +1,8 @@
+area 3
+area 6
+area 0
+Ok { value: 42 } Err { error: empty }
+2 -1
+got 10
+nothing
+44 -56
