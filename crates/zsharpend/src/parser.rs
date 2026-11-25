@@ -402,19 +402,54 @@ impl Parser {
         Ok(Item::Enum { name, variants, line })
     }
 
+    /// A type annotation: `int`, `[int]`, `list<int>`, `map<text, list<int>>`,
+    /// `(int, text)`, `result<int, text>`, `int?`. Kept as canonical text
+    /// (see [`crate::types::TypeSpec`]) so the interpreter checks it.
     fn ty(&mut self) -> R<Type> {
+        // `[T]` keeps its original shape (GPU arrays and headers use it).
         if self.eat_op("[") {
-            let name = self.ident()?;
+            let inner = self.ty()?.name;
             self.expect_op("]")?;
-            return Ok(Type { name, array: true });
+            return Ok(Type { name: inner, array: true });
+        }
+        let mut name = self.ty_text()?;
+        while self.at_op("?") && !matches!(self.peek_at(1), Tok::Op("." | "?" | "??")) {
+            self.next();
+            name.push('?');
+        }
+        let array = name.starts_with("list<");
+        Ok(Type { name, array })
+    }
+
+    fn ty_text(&mut self) -> R<String> {
+        if self.eat_op("(") {
+            let mut parts = vec![self.ty()?.name];
+            while self.eat_op(",") {
+                parts.push(self.ty()?.name);
+            }
+            self.expect_op(")")?;
+            return Ok(format!("({})", parts.join(", ")));
         }
         let name = self.ident()?;
-        if self.eat_op("<") {
-            let inner = self.ident()?;
-            self.expect_op(">")?;
-            return Ok(Type { name: format!("{name}<{inner}>"), array: name == "list" });
+        if !self.eat_op("<") {
+            return Ok(name);
         }
-        Ok(Type { name, array: false })
+        let mut parts = vec![self.ty()?.name];
+        while self.eat_op(",") {
+            parts.push(self.ty()?.name);
+        }
+        // `map<text, list<int>>`: a `>>` closes two lists, `>=` one then `=`.
+        match self.peek().clone() {
+            Tok::Op(">>") => self.split_op(">"),
+            Tok::Op(">=") => self.split_op("="),
+            _ => self.expect_op(">")?,
+        }
+        Ok(format!("{name}<{}>", parts.join(", ")))
+    }
+
+    /// Consumes the first `>` of a two-character operator, leaving `rest`.
+    fn split_op(&mut self, rest: &'static str) {
+        self.toks[self.pos].tok = Tok::Op(rest);
     }
 
     fn params(&mut self) -> R<Vec<Param>> {

@@ -16,6 +16,7 @@ pub mod lexer;
 pub mod parser;
 pub mod program;
 pub mod stdlib;
+pub mod types;
 pub mod value;
 pub mod zsg;
 

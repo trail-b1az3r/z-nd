@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::ast::*;
+use crate::types::TypeSpec;
 use crate::value::*;
 
 /// How a statement ended.
@@ -77,6 +78,8 @@ pub struct Interp {
     pub variant_of: HashMap<String, String>,
     /// Traits (`.zxx`): name → methods (with or without default bodies).
     pub traits: HashMap<String, Vec<Rc<FuncDef>>>,
+    /// Type name → the traits it implements (`impl Area for Shape`).
+    pub implemented: HashMap<String, Vec<String>>,
     /// Modules a program can `import` by name: from script extenders (Rust)
     /// or from `.zxx` module sources, as namespaces (maps).
     pub modules: HashMap<String, Value>,
@@ -106,6 +109,7 @@ impl Interp {
             enums: HashMap::new(),
             variant_of: HashMap::new(),
             traits: HashMap::new(),
+            implemented: HashMap::new(),
             modules: HashMap::new(),
         };
         crate::stdlib::install(&mut it);
@@ -218,6 +222,9 @@ impl Interp {
                         }
                     }
                     for ty in types {
+                        if let Some(t) = of_trait {
+                            self.implemented.entry(ty.clone()).or_default().push(t.clone());
+                        }
                         let m = self.methods.entry(ty).or_default();
                         for f in &all {
                             m.insert(f.name.clone(), f.clone());
@@ -379,6 +386,10 @@ impl Interp {
     }
 
     fn coerce(&self, ty: &Type, v: Value, line: usize) -> Flow<Value> {
+        if ty.array && !ty.name.contains('<') {
+            let list = Type { name: format!("list<{}>", ty.name), array: true };
+            return self.coerce_spec(&list, v, line);
+        }
         let bad = |want: &str, v: &Value| throw(format!("line {line}: expected {want}, got {} ({})", v.type_name(), v));
         Ok(match (ty.name.as_str(), &v) {
             (_, Value::Null) => v,
@@ -416,8 +427,36 @@ impl Interp {
             ("Bool", _) => Value::Bool(v.truthy()),
             ("U0", _) => Value::Null,
             ("str" | "String", _) => Value::str(&v.to_string()),
-            _ => v,
+            _ => return self.coerce_spec(ty, v, line),
         })
+    }
+
+    /// Does type `ty` (a struct or enum variant) implement trait `t`?
+    pub fn implements(&self, ty: &str, t: &str) -> bool {
+        let has = |n: &str| self.implemented.get(n).is_some_and(|ts| ts.iter().any(|x| x == t));
+        has(ty) || self.variant_of.get(ty).is_some_and(|e| has(e))
+    }
+
+    /// Annotations beyond the original names (`text`, `number`, `byte`,
+    /// `list<int>`, `map<text, int>`, `int?`, struct names…) are checked,
+    /// not converted: `let n: text = 5` is an error. An int is accepted
+    /// where a float is expected. Names that aren't types this program
+    /// knows (host objects, typos in old code) are let through as before.
+    fn coerce_spec(&self, ty: &Type, v: Value, line: usize) -> Flow<Value> {
+        let Ok(spec) = TypeSpec::parse(&ty.name) else { return Ok(v) };
+        if !self.knows(&spec) || spec.accepts(&v, Some(self)) {
+            return Ok(v);
+        }
+        throw(format!("line {line}: expected {spec}, got {} ({})", v.type_name(), v))
+    }
+
+    /// Can every name in `spec` be checked? Unknown names are host types or
+    /// old annotations that never meant anything; those aren't enforced.
+    fn knows(&self, spec: &TypeSpec) -> bool {
+        match spec {
+            TypeSpec::Named(n) => self.structs.contains_key(n) || self.enums.contains_key(n) || self.traits.contains_key(n),
+            t => t.params().iter().all(|p| self.knows(p)),
+        }
     }
 
     pub fn exec(&mut self, s: &Stmt, env: &Env) -> Flow<()> {
@@ -426,6 +465,7 @@ impl Interp {
             Stmt::Let { name, ty, value, global, constant, line } => {
                 let mut v = match value {
                     Some(e) => self.eval(e, env)?,
+                    None if ty.as_ref().is_some_and(|t| t.array) => Value::list(vec![]),
                     None => match ty.as_ref().map(|t| t.name.as_str()) {
                         Some("int") => Value::Int(0),
                         Some("float") => Value::Float(0.0),
@@ -433,6 +473,10 @@ impl Interp {
                         Some("bool") => Value::Bool(false),
                         Some("list") => Value::list(vec![]),
                         Some("map") => Value::map(BTreeMap::new()),
+                        Some("text") => Value::str(""),
+                        Some("number" | "byte") => Value::Int(0),
+                        Some(t) if t.starts_with("array") => Value::list(vec![]),
+                        Some(t) if t.starts_with("map<") => Value::map(BTreeMap::new()),
                         _ => Value::Null,
                     },
                 };

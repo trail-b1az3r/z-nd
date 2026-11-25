@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::interp::Interp;
+use crate::types::{result, to_spec, type_value, TypeSpec};
 use crate::value::*;
 
 type R = Result<Value, String>;
@@ -227,20 +228,30 @@ pub fn builtin(name: &str) -> Option<Value> {
             v => v.as_f64().map(Value::Float).ok_or(format!("float: can't convert {}", v.type_name())),
         }),
         "bool" => f(name, |_, a| Ok(Value::Bool(arg(&a, 0).truthy()))),
-        "type" | "type_of" => f(name, |_, a| Ok(Value::str(&arg(&a, 0).type_name()))),
-        "is_type" => f(name, |_, a| {
-            let v = arg(&a, 0);
-            let wanted = text(&a, 1).to_ascii_lowercase();
-            let actual = v.type_name().to_ascii_lowercase();
-            let matches = match wanted.as_str() {
-                "number" | "numeric" => matches!(v, Value::Int(_) | Value::Float(_)),
-                "str" | "text" => matches!(v, Value::Str(_)),
-                "integer" => matches!(v, Value::Int(_)),
-                "boolean" => matches!(v, Value::Bool(_)),
-                "nil" | "none" => matches!(v, Value::Null),
-                _ => actual == wanted,
+        "type" => f(name, |_, a| Ok(Value::str(&arg(&a, 0).type_name()))),
+        // ── Types (see types.rs) ──
+        "type_of" => f(name, |it, a| {
+            Ok(type_value(match TypeSpec::of(&arg(&a, 0)) {
+                // An enum's variant is a value of the enum.
+                TypeSpec::Named(n) => TypeSpec::Named(it.variant_of.get(&n).cloned().unwrap_or(n)),
+                t => t,
+            }))
+        }),
+        "Type" => f(name, |it, a| Ok(type_value(to_spec(it, &arg(&a, 0))?))),
+        "is" => f(name, |it, a| Ok(Value::Bool(to_spec(it, &arg(&a, 1))?.check(&arg(&a, 0), Some(it))))),
+        "as" => f(name, |it, a| to_spec(it, &arg(&a, 1))?.convert(&arg(&a, 0), Some(it))),
+        "try_as" => f(name, |it, a| Ok(result(to_spec(it, &arg(&a, 1))?.convert(&arg(&a, 0), Some(it))))),
+        "is_type" => f(name, |it, a| {
+            // Text names are case-insensitive here (`is_type(x, "String")`).
+            let t = match arg(&a, 1) {
+                Value::Str(s) => TypeSpec::parse(&s).or_else(|_| TypeSpec::parse(&s.to_ascii_lowercase()))?,
+                other => to_spec(it, &other)?,
             };
-            Ok(Value::Bool(matches))
+            let t = match t {
+                TypeSpec::Named(n) if !it.structs.contains_key(&n) && !it.enums.contains_key(&n) => TypeSpec::from_name(&n.to_ascii_lowercase()),
+                t => t,
+            };
+            Ok(Value::Bool(t.check(&arg(&a, 0), Some(it))))
         }),
         "is_number" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Int(_) | Value::Float(_))))),
         "is_int" => f(name, |_, a| Ok(Value::Bool(matches!(arg(&a, 0), Value::Int(_))))),
@@ -543,6 +554,7 @@ pub const GLOBALS: &[&str] = &[
     "trim", "split", "contains", "starts_with", "ends_with", "replace", "chars", "index_of", "repeat", "keys", "values", "has", "remove", "get",
     "NVec2", "vec2", "assert", "Canvas", "enumerate", "items", "any", "all", "list", "printf", "format", "Some", "Ok", "Err", "is_ok", "is_err",
     "is_some", "is_none", "unwrap", "unwrap_or", "type_of", "is_type", "is_number", "is_int", "is_float", "is_string", "is_bool", "is_list", "is_map", "is_null",
+    "Type", "is", "as", "try_as",
 ];
 
 pub fn install(it: &mut Interp) {
@@ -550,6 +562,9 @@ pub fn install(it: &mut Interp) {
         if let Some(v) = builtin(g) {
             it.set_global(g, v);
         }
+    }
+    for t in crate::types::TYPE_GLOBALS {
+        it.set_global(t, type_value(TypeSpec::from_name(t)));
     }
     it.structs.insert("Vec2".into(), vec![("x".into(), None), ("y".into(), None)]);
     it.structs.insert("Ok".into(), vec![("value".into(), None)]);

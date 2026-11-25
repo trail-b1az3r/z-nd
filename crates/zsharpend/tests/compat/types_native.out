@@ -1,0 +1,4 @@
+5.5 {jam: 2, tea: 1} - ["pi", 3.14]
+Ok { value: [1, 2] } Err { error: can't convert string ("two") to int }
+list Size true true true
+24 7! list<(int, text)> true

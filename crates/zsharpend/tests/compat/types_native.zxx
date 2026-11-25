@@ -1,0 +1,28 @@
+// Roadmap stage 2: annotations with the new type names, reflection and conversion.
+struct Item { name: text, price: float }
+enum Size { Small, Large(extra) }
+
+fn total(items: list<Item>) -> float {
+    return sum(items.map(|i| i.price))
+}
+
+fn parse_all(xs: list<text>) -> result<list<int>, text> {
+    let out = []
+    for x in xs {
+        let r = x.try_as(int)
+        if is_err(r) { return r }
+        out.push(unwrap(r))
+    }
+    return Ok(out)
+}
+
+fn Main() {
+    let cart: list<Item> = [Item { name: "tea", price: 2 }, Item { name: "jam", price: 3.5 }]
+    let counts: map<text, int> = { tea: 1, jam: 2 }
+    let note: text? = null
+    let pair: (text, number) = ("pi", 3.14)
+    Printl(total(cart), counts, note ?? "-", pair)
+    Printl(parse_all(["1", "2"]), parse_all(["1", "two"]))
+    Printl(type_of(cart), type_of(Small), Large(1).is(Size), cart[0].is(Item), cart[0].price.is(number))
+    Printl("12".as(int) * 2, 7.as(text) + "!", Type("list<(int, text)>"), Type(text).accepts("x"))
+}

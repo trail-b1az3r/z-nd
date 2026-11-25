@@ -103,3 +103,52 @@ fn Main() {
 `None` (the same as `null`) and `Some(x)` work the same way for values that may be missing. Exceptions — `throw` and `try … catch` — are there too, for failures nobody should have to check for.
 
 Next: [Modules](tutorial-modules.md).
+
+## Type annotations
+
+A `:` after a variable or parameter, or `->` after a function's parameters, gives a type. The original names convert the value as they always have — `let n: int = 2.9` stores `2`, `let s: string = 5` stores `"5"` — while the newer names check it, and a value of the wrong type is an error:
+
+| Type | Holds |
+| --- | --- |
+| `int`, `float`, `bool`, `string`, `color`, `list`, `map` | as before (converting) |
+| `text` | a string — `let s: text = 5` is an error |
+| `number` | an `int` or a `float` |
+| `byte`, `char` | an int from 0 to 255; a one-character string |
+| `list<T>`, `[T]`, `array<T>` | a list whose elements are all `T` |
+| `map<K, V>` | a map whose keys are `K` (always text) and values `V` |
+| `(A, B)` | a tuple: a list of exactly those types |
+| `T?`, `optional<T>` | `null` or a `T` |
+| `result<T, E>` | `Ok(T)` or `Err(E)` |
+| `any`, `dynamic` | anything |
+| a struct, enum or trait name | a value of it, one of its variants, or a type implementing it |
+
+An `int` is accepted where a `float` is expected. Names that aren't types the program knows are not checked, so annotations in older programs keep working.
+
+```zxx run
+struct Point { x: float, y: float }
+
+fn centre(ps: list<Point>) -> Point {
+    let n = len(ps)
+    return Point { x: sum(ps.map(|p| p.x)) / n, y: sum(ps.map(|p| p.y)) / n }
+}
+
+fn Main() {
+    let scores: map<text, list<int>> = { ada: [9, 7], alan: [8] }
+    let nickname: text? = null
+    Printl(centre([Point { x: 0, y: 0 }, Point { x: 4, y: 2 }]), scores, nickname ?? "none")
+    try { let bad: list<int> = [1, "two"] } catch e { Printl(e) }
+}
+```
+
+At run time a type is a value: `type_of` reflects, `is` checks, and `as` / `try_as` convert safely — failing, or returning `Err`, instead of guessing.
+
+```zxx run
+fn Main() {
+    Printl(type_of(3), type_of("hi") == text, type_of([1]) == "list")
+    Printl(3.is(number), "a".is(char), [1, 2].is("list<int>"))
+    Printl("42".as(int) + 1, "4.5".as(number), ["1", "2"].as("list<int>"))
+    Printl("forty".try_as(int), 300.try_as(byte))
+    let t = Type("map<text, list<int>>")
+    Printl(t.base, t.params, t.accepts({ a: [1] }))
+}
+```

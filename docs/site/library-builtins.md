@@ -63,7 +63,7 @@ A list from a range, a string (its characters), a map (its keys) or a list (a co
 :::
 
 ::: function type(x)
-The name of `x`'s type: `"int"`, `"list"`, a struct or variant's name…
+The name of `x`'s type as text, as it has always been: `"int"`, `"string"`, `"list"`, a struct or variant's name… `type_of(x)` gives a type object instead.
 :::
 
 ::: function len(x)
@@ -76,6 +76,90 @@ The length of a list, map, string (characters) or range.
 
 ::: function assert(condition, message=None)
 Fails with `message` when `condition` is false.
+:::
+
+## Types
+
+Types are values too. `int`, `float`, `bool`, `str` and `list` (the conversion functions), `text`, `number`, `byte`, `char`, `dynamic`, `void`, `null`, struct and enum names, and types written as text (`"map<text, list<int>>"`) can all be passed where a type is expected. See [Types and annotations](tutorial-types.md#type-annotations) for the names and what annotations check.
+
+::: data text
+The type of strings. `string`, `str` and `String` are other names for it.
+:::
+
+::: data number
+An `int` or a `float`.
+:::
+
+::: data byte
+An `int` from 0 to 255 (`u8`).
+:::
+
+::: data char
+A string of exactly one character.
+:::
+
+::: data dynamic
+Any value, checked when it's used rather than when it's stored (`any` is the same type).
+:::
+
+::: data void
+The type of `null`, for functions that return nothing (`U0`).
+:::
+
+::: function Type(spec)
+A type object from `spec`: `Type("list<int>")`, `Type(int)`. It prints as its canonical name and has `.name`, `.base` (`"map"` for `map<text, int>`), `.params` (its type parameters, as types), and methods `.accepts(x)`, `.convert(x)` and `.try_convert(x)`.
+:::
+
+::: function type_of(x)
+`x`'s type as a type object: `type_of("hi") == text`. It also compares equal to the type's name, old or new: `type_of("hi") == "string"`.
+:::
+
+::: function is(x, T)
+Whether `x` has type `T`. Lists and maps are checked element by element (`[1, 2].is("list<int>")`), enum variants are their enum, and a struct is each trait it implements. Also a method: `x.is(number)`.
+:::
+
+::: function as(x, T)
+`x` converted to `T`, or an error saying why it can't be: `"42".as(int)` is `42`, `"forty".as(int)` fails, `300.as(byte)` fails rather than wrapping, `3.5.as(int)` fails rather than rounding. Containers convert each element: `["1", "2"].as("list<int>")`.
+:::
+
+::: function try_as(x, T)
+Like `as`, but returns `Ok(value)` or `Err(message)` instead of failing.
+:::
+
+::: function is_type(x, name)
+Whether `x` has the type `name`, ignoring case and accepting the older names (`"String"`, `"Integer"`, `"numeric"`, `"none"`).
+:::
+
+::: function is_number(x)
+`x.is(number)`.
+:::
+
+::: function is_int(x)
+`x.is(int)`.
+:::
+
+::: function is_float(x)
+`x.is(float)`.
+:::
+
+::: function is_string(x)
+`x.is(text)`.
+:::
+
+::: function is_bool(x)
+`x.is(bool)`.
+:::
+
+::: function is_list(x)
+`x.is(list)`.
+:::
+
+::: function is_map(x)
+`x.is(map)`.
+:::
+
+::: function is_null(x)
+`x == null`.
 :::
 
 ## Numbers
