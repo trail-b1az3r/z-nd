@@ -402,6 +402,68 @@ impl Parser {
         Ok(Item::Enum { name, variants, line })
     }
 
+    /// `name := value` or `name: Type [= value]`; `None` (nothing consumed)
+    /// when the statement is something else, such as `default: …`.
+    fn native_decl(&mut self, global: bool, line: usize) -> R<Option<Stmt>> {
+        let Tok::Ident(name) = self.peek().clone() else { return Ok(None) };
+        if self.reserved(&name) || name == "default" {
+            return Ok(None);
+        }
+        let ends = |t: &Tok| matches!(t, Tok::Newline | Tok::Eof | Tok::Op("}"));
+        if self.peek_at(1) == &Tok::Op(":=") {
+            self.next();
+            self.next();
+            self.skip_nl();
+            let value = self.expr(false)?;
+            self.end_stmt()?;
+            return Ok(Some(Stmt::Let { name, ty: None, value: Some(value), global, constant: false, native: true, line }));
+        }
+        if self.peek_at(1) != &Tok::Op(":") || !matches!(self.peek_at(2), Tok::Ident(_) | Tok::Op("[" | "(")) {
+            return Ok(None);
+        }
+        let start = self.pos;
+        self.next();
+        self.next();
+        let ty = match self.ty() {
+            Ok(t) if self.at_op("=") || ends(self.peek()) => t,
+            _ => {
+                self.pos = start;
+                return Ok(None);
+            }
+        };
+        let value = if self.eat_op("=") {
+            self.skip_nl();
+            Some(self.expr(false)?)
+        } else {
+            None
+        };
+        self.end_stmt()?;
+        Ok(Some(Stmt::Let { name, ty: Some(ty), value, global, constant: false, native: true, line }))
+    }
+
+    /// In an expression, is a type written here? `list<…>`, `map<…>` (and
+    /// the other generic names) when the whole `<…>` parses as a type and
+    /// is followed by `)`, `,`, `]`, `}` or the line's end, so comparisons
+    /// like `count < limit` are never mistaken for one; or a built-in
+    /// type name followed by `?` and one of those (`int?`).
+    fn type_ahead(&mut self) -> bool {
+        const GENERIC: &[&str] = &["list", "array", "map", "optional", "Option", "result", "Result", "tuple"];
+        const SIMPLE: &[&str] = &["int", "float", "number", "text", "string", "str", "bool", "byte", "char", "color", "any", "dynamic"];
+        let closes = |t: &Tok| matches!(t, Tok::Op(")" | "," | "]" | "}") | Tok::Newline | Tok::Eof);
+        let Tok::Ident(name) = self.peek().clone() else { return false };
+        if SIMPLE.contains(&name.as_str()) && self.peek_at(1) == &Tok::Op("?") {
+            return closes(self.peek_at(2));
+        }
+        if !GENERIC.contains(&name.as_str()) || self.peek_at(1) != &Tok::Op("<") {
+            return false;
+        }
+        let (start, saved) = (self.pos, self.toks.clone());
+        let ok = self.ty().is_ok() && closes(self.peek());
+        self.pos = start;
+        self.toks = saved;
+        ok
+    }
+
     /// A type annotation: `int`, `[int]`, `list<int>`, `map<text, list<int>>`,
     /// `(int, text)`, `result<int, text>`, `int?`. Kept as canonical text
     /// (see [`crate::types::TypeSpec`]) so the interpreter checks it.
@@ -585,7 +647,7 @@ impl Parser {
                 return Err(format!("line {line}: `const {name}` needs a value"));
             }
             self.end_stmt()?;
-            return Ok(Stmt::Let { name, ty, value, global, constant, line });
+            return Ok(Stmt::Let { name, ty, value, global, constant, native: false, line });
         }
         // Z#: `int x = 1`, `Vec2 p = NVec2(1, 2)`, `string s`
         if let (Tok::Ident(t), Tok::Ident(n)) = (self.peek().clone(), self.peek_at(1).clone()) {
@@ -599,7 +661,13 @@ impl Parser {
                     None
                 };
                 self.end_stmt()?;
-                return Ok(Stmt::Let { name: n, ty: Some(Type { name: t, array: false }), value, global, constant: false, line });
+                return Ok(Stmt::Let { name: n, ty: Some(Type { name: t, array: false }), value, global, constant: false, native: false, line });
+            }
+        }
+        // Native declarations (.zxx): `name: Type = value`, `name := value`.
+        if self.zxx() {
+            if let Some(s) = self.native_decl(global, line)? {
+                return Ok(s);
             }
         }
         if global {
@@ -1242,6 +1310,11 @@ impl Parser {
                 }
                 let body = if self.at_op("{") { self.block()? } else { vec![Stmt::Return(Some(self.expr(ns)?), line)] };
                 Ok(Expr::Lambda(Rc::new(FuncDef { name: "lambda".into(), params, ret: None, body: Some(body), line })))
+            }
+            Tok::Ident(_) if self.zxx() && self.type_ahead() => {
+                // `list<int>`, `map<text, int>`, `int?` as values: `x.is(list<int>)`.
+                let t = self.ty()?;
+                Ok(Expr::Call(Box::new(Expr::Var("Type".into(), line)), vec![Expr::Str(vec![StrSeg::Lit(t.name)])], line))
             }
             Tok::Ident(s) => match s.as_str() {
                 "true" => {

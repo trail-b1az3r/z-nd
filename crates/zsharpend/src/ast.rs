@@ -71,7 +71,10 @@ pub struct Arm {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     /// `let`/`const`/typed declaration (`int x = 1`), maybe `global`.
-    Let { name: String, ty: Option<Type>, value: Option<Expr>, global: bool, constant: bool, line: usize },
+    /// `native`: `name: Type = value` (every type name is checked, never
+    /// converted) or, without a type, `name := value` (the first value's
+    /// type is kept).
+    Let { name: String, ty: Option<Type>, value: Option<Expr>, global: bool, constant: bool, native: bool, line: usize },
     /// `target op= value` (op "=" for plain assignment).
     Assign { target: Expr, op: &'static str, value: Expr, line: usize },
     Expr(Expr, usize),

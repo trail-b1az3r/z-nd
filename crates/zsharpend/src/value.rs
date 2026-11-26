@@ -117,13 +117,16 @@ pub struct Native {
 pub struct Scope {
     pub vars: HashMap<String, Value>,
     pub consts: Vec<String>,
+    /// Variables declared with a checked type (`let s: text`, `n := 0`)
+    /// keep it: assigning another type is an error.
+    pub types: HashMap<String, Rc<crate::types::TypeSpec>>,
     pub parent: Option<Env>,
 }
 
 pub type Env = Rc<RefCell<Scope>>;
 
 pub fn new_scope(parent: Option<Env>) -> Env {
-    Rc::new(RefCell::new(Scope { vars: HashMap::new(), consts: vec![], parent }))
+    Rc::new(RefCell::new(Scope { vars: HashMap::new(), consts: vec![], types: HashMap::new(), parent }))
 }
 
 impl Value {

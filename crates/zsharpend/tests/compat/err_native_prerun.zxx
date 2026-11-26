@@ -1,0 +1,7 @@
+func unused() {
+    count: int = "three"
+}
+
+func Main() {
+    Printl("never printed")
+}

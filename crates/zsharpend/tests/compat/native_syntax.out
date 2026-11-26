@@ -1,0 +1,4 @@
+basket 5.5 tea Large Size
+true false true map<text, int>
+line 22: `total` is float, can't assign string (free)
+false full

@@ -196,6 +196,7 @@ impl Program {
             it.load_module(name, items)?;
         }
         it.load(&c.items)?;
+        it.check_declarations(&c.items)?;
         Ok(Program { interp: it, files: c.files })
     }
 

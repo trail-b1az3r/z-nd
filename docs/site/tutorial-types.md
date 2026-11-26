@@ -136,7 +136,8 @@ fn Main() {
     let scores: map<text, list<int>> = { ada: [9, 7], alan: [8] }
     let nickname: text? = null
     Printl(centre([Point { x: 0, y: 0 }, Point { x: 4, y: 2 }]), scores, nickname ?? "none")
-    try { let bad: list<int> = [1, "two"] } catch e { Printl(e) }
+    let word = "two"
+    try { let bad: list<int> = [1, word] } catch e { Printl(e) }
 }
 ```
 
@@ -150,5 +151,39 @@ fn Main() {
     Printl("forty".try_as(int), 300.try_as(byte))
     let t = Type("map<text, list<int>>")
     Printl(t.base, t.params, t.accepts({ a: [1] }))
+}
+```
+
+## Native declarations
+
+In `.zxx`, a variable can be declared without `let`, Zsharpend's own way:
+
+* `name: Type = value` declares a variable of that type. Every type name is
+  checked here, the original ones too: `n: int = 2.5` is an error, where
+  `let n: int = 2.5` converts to `2`. A declaration without a value gets the
+  type's zero.
+* `name := value` declares a variable whose type is its first value's.
+
+Either way the variable keeps its type: assigning a value of another type
+is an error (an int assigned to a float variable becomes a float). A `let`
+without a type, and the original converting names, don't fix the type.
+
+Generic types can be written directly in expressions: `x.is(list<int>)`,
+`["1"].as(list<int>)`, `5.is(int?)`, `(1, "a").is((int, text))`.
+
+Declarations whose value is a literal are checked before the program
+starts, so `count: int = "three"` in a function that hasn't run yet is
+still reported.
+
+```zxx run
+struct Item { name: text, price: float }
+
+func Main() {
+    cart: list<Item> = [Item { name: "tea", price: 2 }]
+    total := 0.0
+    for item in cart { total += item.price }
+    label: text = "total"
+    Printl(label, total, cart.is(list<Item>))
+    try { total = "free" } catch e { Printl(e) }
 }
 ```

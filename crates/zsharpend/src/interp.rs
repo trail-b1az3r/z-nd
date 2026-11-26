@@ -380,6 +380,7 @@ impl Interp {
     fn declare(&mut self, env: &Env, name: &str, v: Value, constant: bool) {
         let mut s = env.borrow_mut();
         s.vars.insert(name.to_string(), v);
+        s.types.remove(name);
         if constant {
             s.consts.push(name.to_string());
         }
@@ -431,6 +432,98 @@ impl Interp {
         })
     }
 
+    /// The type an annotation checks, or `None` for the original converting
+    /// names (`int`, `string`, `u8`…) and names this program doesn't define.
+    pub fn checked_spec(&self, ty: &Type) -> Option<TypeSpec> {
+        const CONVERTING: &[&str] = &[
+            "int", "float", "string", "bool", "list", "map", "color", "u8", "U8", "u16", "U16", "u32", "U32", "i8", "I8", "i16", "I16", "i32", "I32",
+            "i64", "I64", "u64", "U64", "usize", "isize", "f64", "F64", "f32", "F32", "Bool", "U0", "str", "String",
+        ];
+        let name = if ty.array && !ty.name.contains('<') { format!("list<{}>", ty.name) } else { ty.name.clone() };
+        if CONVERTING.contains(&name.as_str()) {
+            return None;
+        }
+        TypeSpec::parse(&name).ok().filter(|t| self.knows(t))
+    }
+
+    /// The type a native declaration (`name: T = v`) checks: every name,
+    /// old or new, except names the program doesn't define.
+    fn native_spec(&self, ty: &Type) -> Option<TypeSpec> {
+        let name = if ty.array && !ty.name.contains('<') { format!("list<{}>", ty.name) } else { ty.name.clone() };
+        TypeSpec::parse(&name).ok().filter(|t| self.knows(t))
+    }
+
+    /// Checks, before `Main` runs, every declaration whose value is a
+    /// literal against its checked type (`n: int = "seven"`,
+    /// `let s: text = 5`), so the mistake is reported even on a path that
+    /// hasn't run yet. Original converting annotations aren't checked here.
+    pub fn check_declarations(&self, items: &[Item]) -> Result<(), String> {
+        let mut errors = vec![];
+        let mut funcs: Vec<&FuncDef> = vec![];
+        for item in items {
+            match item {
+                Item::Func(f) => funcs.push(f),
+                Item::Impl { methods, .. } | Item::Trait { methods, .. } => funcs.extend(methods.iter().map(|m| &**m)),
+                Item::On { body, .. } => self.check_stmts(body, &mut errors),
+                Item::Stmt(s) => self.check_stmts(std::slice::from_ref(s), &mut errors),
+                _ => {}
+            }
+        }
+        for f in funcs {
+            if let Some(body) = &f.body {
+                self.check_stmts(body, &mut errors);
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("\n"))
+        }
+    }
+
+    fn check_stmts(&self, stmts: &[Stmt], errors: &mut Vec<String>) {
+        for s in stmts {
+            match s {
+                Stmt::Let { ty: Some(ty), value: Some(e), native, line, .. } => {
+                    let spec = if *native { self.native_spec(ty) } else { self.checked_spec(ty) };
+                    if let (Some(t), Some(v)) = (spec, literal(e)) {
+                        if !t.accepts(&v, Some(self)) {
+                            errors.push(format!("line {line}: expected {t}, got {} ({v})", v.type_name()));
+                        }
+                    }
+                }
+                Stmt::If { then, els, .. } => {
+                    self.check_stmts(then, errors);
+                    if let Some(e) = els {
+                        self.check_stmts(e, errors);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::For { body, .. } | Stmt::Block(body) => self.check_stmts(body, errors),
+                Stmt::Try { body, catch, .. } => {
+                    self.check_stmts(body, errors);
+                    self.check_stmts(catch, errors);
+                }
+                Stmt::Switch { cases, default, .. } => {
+                    for c in cases {
+                        self.check_stmts(&c.body, errors);
+                    }
+                    if let Some(d) = default {
+                        self.check_stmts(d, errors);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// `type_of`: a value's type, with enum variants reported as their enum.
+    pub fn type_of(&self, v: &Value) -> TypeSpec {
+        match TypeSpec::of(v) {
+            TypeSpec::Named(n) => TypeSpec::Named(self.variant_of.get(&n).cloned().unwrap_or(n)),
+            t => t,
+        }
+    }
+
     /// Does type `ty` (a struct or enum variant) implement trait `t`?
     pub fn implements(&self, ty: &str, t: &str) -> bool {
         let has = |n: &str| self.implemented.get(n).is_some_and(|ts| ts.iter().any(|x| x == t));
@@ -443,9 +536,9 @@ impl Interp {
     /// where a float is expected. Names that aren't types this program
     /// knows (host objects, typos in old code) are let through as before.
     fn coerce_spec(&self, ty: &Type, v: Value, line: usize) -> Flow<Value> {
-        let Ok(spec) = TypeSpec::parse(&ty.name) else { return Ok(v) };
-        if !self.knows(&spec) || spec.accepts(&v, Some(self)) {
-            return Ok(v);
+        let Some(spec) = self.checked_spec(ty) else { return Ok(v) };
+        if spec.accepts(&v, Some(self)) {
+            return Ok(spec.widen(v));
         }
         throw(format!("line {line}: expected {spec}, got {} ({})", v.type_name(), v))
     }
@@ -462,7 +555,7 @@ impl Interp {
     pub fn exec(&mut self, s: &Stmt, env: &Env) -> Flow<()> {
         self.tick()?;
         match s {
-            Stmt::Let { name, ty, value, global, constant, line } => {
+            Stmt::Let { name, ty, value, global, constant, native, line } => {
                 let mut v = match value {
                     Some(e) => self.eval(e, env)?,
                     None if ty.as_ref().is_some_and(|t| t.array) => Value::list(vec![]),
@@ -480,11 +573,28 @@ impl Interp {
                         _ => Value::Null,
                     },
                 };
-                if let Some(t) = ty {
-                    v = self.coerce(t, v, *line)?;
+                // The type this variable keeps: a checked annotation, or the
+                // first value's type for `:=`.
+                let keep = match ty {
+                    Some(t) if *native => self.native_spec(t),
+                    Some(t) => {
+                        v = self.coerce(t, v, *line)?;
+                        self.checked_spec(t)
+                    }
+                    None if *native && !matches!(v, Value::Null) => Some(self.type_of(&v)),
+                    None => None,
+                };
+                if let (Some(t), true) = (&keep, *native) {
+                    if !t.accepts(&v, Some(self)) {
+                        return throw(format!("line {line}: expected {t}, got {} ({v})", v.type_name()));
+                    }
+                    v = t.widen(v);
                 }
                 let target = if *global { self.globals.clone() } else { env.clone() };
                 self.declare(&target, name, v, *constant);
+                if let Some(t) = keep {
+                    target.borrow_mut().types.insert(name.clone(), Rc::new(t));
+                }
                 Ok(())
             }
             Stmt::Assign { target, op, value, line } => {
@@ -765,6 +875,14 @@ impl Interp {
                     if s.borrow().vars.contains_key(name) {
                         if s.borrow().consts.contains(name) {
                             return throw(format!("line {line}: `{name}` is a constant"));
+                        }
+                        let kept = s.borrow().types.get(name).cloned();
+                        if let Some(t) = kept {
+                            if !t.accepts(&v, Some(self)) {
+                                return throw(format!("line {line}: `{name}` is {t}, can't assign {} ({v})", v.type_name()));
+                            }
+                            s.borrow_mut().vars.insert(name.clone(), t.widen(v));
+                            return Ok(());
                         }
                         s.borrow_mut().vars.insert(name.clone(), v);
                         return Ok(());
@@ -1574,4 +1692,39 @@ pub fn glob(p: &str, t: &str) -> bool {
         pi += 1;
     }
     pi == p.len()
+}
+
+/// The value of an expression made only of literals (`5`, `"a"`, `[1, 2]`,
+/// `{ a: -1 }`), or `None`.
+fn literal(e: &Expr) -> Option<Value> {
+    Some(match e {
+        Expr::Null => Value::Null,
+        Expr::Bool(b) => Value::Bool(*b),
+        Expr::Int(i) => Value::Int(*i),
+        Expr::Float(f) => Value::Float(*f),
+        Expr::Color(c) => Value::Color(*c),
+        Expr::Str(segs) => match segs.as_slice() {
+            [] => Value::str(""),
+            [StrSeg::Lit(s)] => Value::str(s),
+            _ => return None,
+        },
+        Expr::Unary("-", x) => match literal(x)? {
+            Value::Int(i) => Value::Int(i.checked_neg()?),
+            Value::Float(f) => Value::Float(-f),
+            _ => return None,
+        },
+        Expr::List(xs) => Value::list(xs.iter().map(literal).collect::<Option<_>>()?),
+        Expr::Map(kvs) => {
+            let mut m = BTreeMap::new();
+            for (k, v) in kvs {
+                let key = match k {
+                    Expr::Var(n, _) => n.clone(),
+                    k => literal(k)?.to_string(),
+                };
+                m.insert(key, literal(v)?);
+            }
+            Value::map(m)
+        }
+        _ => return None,
+    })
 }

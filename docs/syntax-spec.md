@@ -8,7 +8,7 @@ Each rule here is pinned by a test: the fixture suite in
 output, see [Compatibility suite](#compatibility-suite)) plus the unit tests in
 `crates/zsharpend/tests/`.
 
-Sections marked **Proposed (stage 3)** are specified but not implemented.
+The [Still proposed](#still-proposed) section lists what is specified but not implemented yet.
 
 ## Dialects
 
@@ -147,7 +147,7 @@ Atom     := Name
           | "(" Type ("," Type)* ")"             // (int, text): a tuple
 ```
 
-`>>` and `>=` directly after a type list are split (`map<text, list<int>>= {}`).
+`>=` directly after a type list is split (`map<text, list<int>>= {}`).
 
 | Names | Meaning |
 | --- | --- |
@@ -163,19 +163,54 @@ annotation (as before). Types are also values at run time; see
 [the library reference](site/library-builtins.md#types) for `type_of`, `is`,
 `as`, `try_as` and `Type`.
 
-## Proposed (stage 3)
+## Native declarations (stage 3)
 
-Specified here so stage 3 can implement it against tests; **not implemented**.
+Only in `.zxx`, as statements:
 
-* `name: Type = expr` — a declaration without `let`.
-* `name := expr` — an inferred binding (type fixed by the first value).
-* `func name(args) -> Type` as the preferred function form in `.zxx` (`fn`
-  stays accepted).
-* Generic types in expression position (`x.is(list<int>)`), which today must
-  be written as text (`x.is("list<int>")`) or `Type("list<int>")`, since
-  `list < int > …` parses as comparisons.
-* Checking annotated declarations whose initialiser is a literal before the
-  program runs (`zspp check`), in addition to the run-time check.
+```
+name: Type [= expr]      // every type name is checked, none converts
+name := expr             // the type is the first value's (none for null)
+```
+
+A statement starting `name :` is a declaration only when what follows
+parses as a type and is followed by `=` or the end of the line; otherwise
+it's parsed as before (so `default: …` in a `switch` is unchanged).
+`default` and reserved words are never declared this way.
+
+A variable declared either way, or with `let name: T` where `T` is a
+checked type, **keeps its type**: assigning a value that doesn't match is a
+run-time error (`` `n` is int, can't assign string (x) ``); an int assigned
+to a float variable is stored as a float. Assigning into an element
+(`xs[0] = …`) is not checked. Re-declaring the name (`let n = …`) replaces
+the variable and its type.
+
+`func name(args) -> Type` is the preferred function form in `.zxx`; `fn` is
+still accepted.
+
+### Types in expressions
+
+In `.zxx`, a generic type name (`list`, `array`, `map`, `optional`,
+`Option`, `result`, `Result`, `tuple`) followed by `<` is read as a type
+when the whole `<…>` parses as one and is followed by `)`, `,`, `]`, `}` or
+the end of the line; likewise a built-in type name followed by `?` and one
+of those (`int?`). It evaluates to `Type("…")`. Anything else is parsed as
+before, so `a < b` and `f(x < y, z > w)` are comparisons. A tuple of types
+`(int, text)` is a tuple type wherever a type is expected.
+
+### Checks before running
+
+When a program loads, every declaration whose value is made only of
+literals (numbers, strings, `null`, colours, `-`, and lists and maps of
+those) is checked against its checked type, in all functions, methods,
+handlers and top-level statements, whether or not they run. All failures
+are reported together. Declarations using the original converting names,
+and values that aren't literals, are checked when they run.
+
+## Still proposed
+
+* Checking non-literal initialisers and call arguments before running
+  (type inference across expressions).
+* Checking assignments into elements of typed lists and maps.
 
 Rust- and Python-style forms (`fn`, `let mut`, `trait`, `?`, comprehensions)
 remain accepted in `.zxx`; none becomes mandatory.

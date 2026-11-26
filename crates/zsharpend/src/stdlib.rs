@@ -230,13 +230,7 @@ pub fn builtin(name: &str) -> Option<Value> {
         "bool" => f(name, |_, a| Ok(Value::Bool(arg(&a, 0).truthy()))),
         "type" => f(name, |_, a| Ok(Value::str(&arg(&a, 0).type_name()))),
         // ── Types (see types.rs) ──
-        "type_of" => f(name, |it, a| {
-            Ok(type_value(match TypeSpec::of(&arg(&a, 0)) {
-                // An enum's variant is a value of the enum.
-                TypeSpec::Named(n) => TypeSpec::Named(it.variant_of.get(&n).cloned().unwrap_or(n)),
-                t => t,
-            }))
-        }),
+        "type_of" => f(name, |it, a| Ok(type_value(it.type_of(&arg(&a, 0))))),
         "Type" => f(name, |it, a| Ok(type_value(to_spec(it, &arg(&a, 0))?))),
         "is" => f(name, |it, a| Ok(Value::Bool(to_spec(it, &arg(&a, 1))?.check(&arg(&a, 0), Some(it))))),
         "as" => f(name, |it, a| to_spec(it, &arg(&a, 1))?.convert(&arg(&a, 0), Some(it))),

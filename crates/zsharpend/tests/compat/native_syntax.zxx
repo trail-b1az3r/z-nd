@@ -1,0 +1,25 @@
+// Roadmap stage 3: native declarations, kept types, types in expressions.
+struct Item { name: text, price: float }
+enum Size { Small, Large }
+
+func cheapest(items: list<Item>) -> Item? {
+    best: Item? = null
+    for i in items {
+        if best == null or i.price < best.price { best = i }
+    }
+    return best
+}
+
+func Main() {
+    cart: list<Item> = [Item { name: "tea", price: 2 }, Item { name: "jam", price: 3.5 }]
+    total := 0.0
+    for i in cart { total += i.price }
+    size: Size = Large
+    label: text
+    label = "basket"
+    Printl(label, total, cheapest(cart).name, size, type_of(size))
+    Printl(cart.is(list<Item>), [1, "a"].is(list<int>), (1, "x").is((int, text)), map<text, int>)
+    try { total = "free" } catch e { Printl(e) }
+    limit := 2
+    Printl(len(cart) < limit, len(cart) >= limit ? "full" : "room")
+}

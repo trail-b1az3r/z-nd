@@ -178,6 +178,15 @@ impl TypeSpec {
         }
     }
 
+    /// An int stored where a float is expected becomes a float.
+    pub fn widen(&self, v: Value) -> Value {
+        match (self, &v) {
+            (T::Float, Value::Int(i)) => Value::Float(*i as f64),
+            (T::Optional(t), Value::Int(_)) => t.widen(v),
+            _ => v,
+        }
+    }
+
     /// Converts `v` to this type, or says why it can't. Never loses data
     /// silently: `"12"` → int works, `"twelve"` → int is an error, and
     /// `300` → byte is an error rather than a wrap.
@@ -522,6 +531,8 @@ pub fn to_spec(it: &Interp, v: &Value) -> Result<TypeSpec, String> {
             n if it.structs.contains_key(n) || it.enums.contains_key(n) => T::Named(n.into()),
             n => return Err(format!("`{n}` isn't a type")),
         }),
+        // `(int, text)` in an expression is a tuple of types.
+        Value::List(items) => Ok(T::Tuple(items.borrow().iter().map(|x| to_spec(it, x)).collect::<Result<_, _>>()?)),
         // An enum's name evaluates to the namespace of its variants.
         Value::Map(m) => it
             .enums
